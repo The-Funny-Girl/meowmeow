@@ -1,0 +1,18 @@
+Building kirkware
+===============
+
+Requirements
+- 64-bit Windows with PowerShell 5.1 or newer
+- LLVM-MinGW (clang++, windres, llvm-objdump, llvm-readobj, llvm-nm and llvm-strip)
+
+From this folder, run:
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\BUILD.ps1 -Toolchain "C:\path\to\llvm-mingw"
+
+The finished executable is written to:
+
+  build\kirkware.exe
+
+The build script checks the bundled assets, imports and final executable
+before printing its SHA-256 hash. If a tool cannot be found, point
+-Toolchain at either the LLVM-MinGW root folder or its bin folder.
