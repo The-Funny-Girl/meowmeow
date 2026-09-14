@@ -80,9 +80,24 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
     add_test(NAME linux-cli-check COMMAND kirkware --check --no-workspace)
     add_test(NAME linux-cli-help COMMAND kirkware --help)
     add_test(NAME linux-cli-game-info COMMAND kirkware --game-info --no-workspace)
+    add_test(NAME linux-cli-setting-update
+             COMMAND kirkware --set workspace_retention_hours=48)
     add_test(NAME linux-cli-version COMMAND kirkware --version)
     add_test(NAME linux-cli-settings COMMAND kirkware --settings --no-workspace)
     add_test(NAME linux-cli-bad-option COMMAND kirkware --definitely-invalid)
+
+    set(KIRKWARE_CLI_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/cli-test-home")
+    set(KIRKWARE_CLI_TEST_ENV
+        "HOME=${KIRKWARE_CLI_TEST_HOME};XDG_CONFIG_HOME=${KIRKWARE_CLI_TEST_HOME}/config;XDG_DATA_HOME=${KIRKWARE_CLI_TEST_HOME}/data;XDG_CACHE_HOME=${KIRKWARE_CLI_TEST_HOME}/cache;XDG_STATE_HOME=${KIRKWARE_CLI_TEST_HOME}/state;XDG_RUNTIME_DIR=${KIRKWARE_CLI_TEST_HOME}/runtime")
+    set_tests_properties(
+        linux-cli-check
+        linux-cli-help
+        linux-cli-game-info
+        linux-cli-setting-update
+        linux-cli-version
+        linux-cli-settings
+        linux-cli-bad-option
+        PROPERTIES ENVIRONMENT "${KIRKWARE_CLI_TEST_ENV}")
     set_tests_properties(linux-cli-bad-option PROPERTIES WILL_FAIL TRUE)
 endif()
 
