@@ -51,7 +51,46 @@ bool ParseUnsigned(std::string_view value, unsigned& output)
     return result.ec == std::errc{} && result.ptr == end;
 }
 
-bool SetError(std::string* error, std::size_t line, std::string message)
+bool ApplyKeyValue(LinuxSettings& settings,
+                   std::string_view key,
+                   std::string_view value,
+                   std::string* error)
+{
+    key = Trim(key);
+    value = Trim(value);
+    if (key == "keep_workspace") {
+        if (!ParseBool(value, settings.keep_workspace)) {
+            if (error)
+                *error = "invalid keep_workspace value";
+            return false;
+        }
+        return true;
+    }
+    if (key == "cleanup_stale_workspaces") {
+        if (!ParseBool(value, settings.cleanup_stale_workspaces)) {
+            if (error)
+                *error = "invalid cleanup_stale_workspaces value";
+            return false;
+        }
+        return true;
+    }
+    if (key == "workspace_retention_hours") {
+        unsigned hours = 0;
+        if (!ParseUnsigned(value, hours) || hours < kMinimumRetentionHours ||
+            hours > kMaximumRetentionHours) {
+            if (error)
+                *error = "workspace_retention_hours must be 1..720";
+            return false;
+        }
+        settings.workspace_retention_hours = hours;
+        return true;
+    }
+    if (error)
+        *error = "unknown setting '" + std::string(key) + "'";
+    return false;
+}
+
+bool SetLineError(std::string* error, std::size_t line, std::string message)
 {
     if (error)
         *error = "linux.conf line " + std::to_string(line) + ": " + message;
@@ -59,6 +98,27 @@ bool SetError(std::string* error, std::size_t line, std::string message)
 }
 
 } // namespace
+
+bool ApplyLinuxSetting(LinuxSettings& settings,
+                       std::string_view assignment,
+                       std::string* error)
+{
+    assignment = Trim(assignment);
+    const std::size_t equals = assignment.find('=');
+    if (equals == std::string_view::npos) {
+        if (error)
+            *error = "expected key=value";
+        return false;
+    }
+    const std::string_view key = Trim(assignment.substr(0, equals));
+    const std::string_view value = Trim(assignment.substr(equals + 1));
+    if (key.empty()) {
+        if (error)
+            *error = "setting key is empty";
+        return false;
+    }
+    return ApplyKeyValue(settings, key, value, error);
+}
 
 bool LoadLinuxSettings(const fs::path& path,
                        LinuxSettings& settings,
@@ -92,27 +152,12 @@ bool LoadLinuxSettings(const fs::path& path,
             continue;
         const std::size_t equals = view.find('=');
         if (equals == std::string_view::npos)
-            return SetError(error, line_number, "expected key=value");
+            return SetLineError(error, line_number, "expected key=value");
         const std::string_view key = Trim(view.substr(0, equals));
         const std::string_view value = Trim(view.substr(equals + 1));
-        if (key == "keep_workspace") {
-            if (!ParseBool(value, parsed.keep_workspace))
-                return SetError(error, line_number, "invalid keep_workspace value");
-        } else if (key == "cleanup_stale_workspaces") {
-            if (!ParseBool(value, parsed.cleanup_stale_workspaces))
-                return SetError(error, line_number,
-                                "invalid cleanup_stale_workspaces value");
-        } else if (key == "workspace_retention_hours") {
-            if (!ParseUnsigned(value, parsed.workspace_retention_hours) ||
-                parsed.workspace_retention_hours < kMinimumRetentionHours ||
-                parsed.workspace_retention_hours > kMaximumRetentionHours) {
-                return SetError(error, line_number,
-                                "workspace_retention_hours must be 1..720");
-            }
-        } else {
-            return SetError(error, line_number,
-                            "unknown setting '" + std::string(key) + "'");
-        }
+        std::string setting_error;
+        if (!ApplyKeyValue(parsed, key, value, &setting_error))
+            return SetLineError(error, line_number, std::move(setting_error));
     }
 
     settings = parsed;
