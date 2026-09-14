@@ -50,11 +50,15 @@ Coordinates path discovery, directory creation, settings loading, logging, stale
 
 ## Boundary with the original Windows source
 
-The Linux target does not link the original `_native_main.cpp`, Win32 UI host, D3D9 backend, PE resource pipeline or Windows bootstrap/process chain. Those files remain reference material for behavior and data-model decisions, not libraries for the Linux executable.
+The Linux target does not link the original `_native_main.cpp`, Win32 UI host, D3D9 backend, PE resource pipeline or Windows bootstrap/process chain. Those files remain separate from the Linux target.
 
-Portable logic may be extracted from the original source only when it can be given a platform-neutral contract and tested without Windows binaries. A good extraction has ordinary C++ inputs/outputs and no dependency on PE resources, Win32 handles, process-memory behavior or Direct3D objects.
+The existing Windows runtime is treated as a preserved implementation. Linux portability work must not rewrite, substitute, simplify, or otherwise alter that Windows execution path as a side effect of the Linux port. This is important both for behavioral compatibility and for keeping Windows-side security assumptions stable while the Linux architecture evolves independently.
 
-The Steam integration demonstrates the preferred migration pattern: identify the user-visible behavior (find/run Garry's Mod) and reimplement it using supported Linux/Steam interfaces instead of translating Windows internals.
+GitHub Actions enforces this boundary for Linux work by checking the preserved Windows paths, including `source/core`, `source/ui`, the Windows build files, manifest, and bootstrap/runtime assets. A Linux change that modifies those protected paths fails the preservation check before the Linux build jobs run.
+
+Portable logic may be extracted into new platform-neutral files only when the original Windows implementation remains intact. The Linux side should depend on its own documented interfaces rather than replacing Windows internals in place.
+
+The Steam integration demonstrates the preferred migration pattern for Linux-only functionality: identify the user-visible behavior (find/run Garry's Mod) and implement that Linux behavior using supported Linux/Steam interfaces while leaving the existing Windows runtime untouched.
 
 ## Future GUI boundary
 
@@ -76,4 +80,4 @@ That makes it possible to choose SDL2/OpenGL, GLFW/OpenGL, or another normal Lin
 
 CMake is the source of truth for the Linux build. GCC and Clang Release builds, CLI/integration tests, install smoke tests and package creation run in GitHub Actions. A separate Clang ASan/UBSan job compiles with warnings as errors. Steam discovery tests use a synthetic directory tree and never start Steam or a game in CI.
 
-The goal for new Linux code is simple: no Windows binary dependency, a documented interface, predictable filesystem ownership, and automated verification.
+The goal for new Linux code is simple: preserve the existing Windows runtime, keep Linux code independently testable, use documented interfaces, maintain predictable filesystem ownership, and verify changes automatically.
