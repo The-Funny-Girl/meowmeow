@@ -1,6 +1,7 @@
 #include "application.hpp"
 #include "config_store.hpp"
 #include "file_utils.hpp"
+#include "game_integration.hpp"
 #include "linux_paths.hpp"
 #include "workspace.hpp"
 
@@ -130,6 +131,49 @@ int main()
            "cleanup_stale_workspaces round trips");
     Expect(loaded_settings.workspace_retention_hours == 48,
            "workspace_retention_hours round trips");
+
+    const fs::path steam_root = root / "home" / ".local" / "share" / "Steam";
+    const fs::path second_library = root / "steam-library";
+    fs::create_directories(steam_root / "steamapps");
+    fs::create_directories(
+        second_library / "steamapps" / "common" / "GarrysMod");
+    const std::string library_vdf =
+        "\"libraryfolders\"\n{\n    \"0\"\n    {\n        \"path\" \"" +
+        second_library.string() + "\"\n    }\n}\n";
+    Expect(kirkware::platform::AtomicWriteText(
+               steam_root / "steamapps" / "libraryfolders.vdf",
+               library_vdf, &error),
+           "Steam library fixture can be written");
+    Expect(kirkware::platform::AtomicWriteText(
+               second_library / "steamapps" / "appmanifest_4000.acf",
+               "\"AppState\"\n{\n    \"appid\" \"4000\"\n    \"installdir\" \"GarrysMod\"\n}\n",
+               &error),
+           "Garry's Mod manifest fixture can be written");
+    const auto game = kirkware::platform::DiscoverGarrysMod(root / "home");
+    Expect(game.found,
+           "Garry's Mod is discovered in a secondary Steam library");
+    Expect(game.library_root == second_library,
+           "Garry's Mod discovery returns the correct Steam library");
+    Expect(game.install_root ==
+               second_library / "steamapps" / "common" / "GarrysMod",
+           "Garry's Mod discovery returns the install directory");
+
+    const fs::path fake_bin = root / "bin";
+    fs::create_directories(fake_bin);
+    const fs::path fake_steam = fake_bin / "steam";
+    Expect(kirkware::platform::AtomicWriteText(
+               fake_steam, "#!/bin/sh\nexit 0\n", &error),
+           "fake Steam command can be written");
+    fs::permissions(fake_steam,
+                    fs::perms::owner_read | fs::perms::owner_write |
+                        fs::perms::owner_exec,
+                    fs::perm_options::replace);
+    {
+        ScopedEnvironment path_override("PATH", fake_bin.string());
+        Expect(kirkware::platform::DetectSteamLaunchMethod() ==
+                   kirkware::platform::SteamLaunchMethod::SteamCommand,
+               "Steam command is preferred when available");
+    }
 
     const fs::path invalid_settings_path =
         paths.config_root / "settings-invalid.conf";
