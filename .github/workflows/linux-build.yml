@@ -53,6 +53,14 @@ jobs:
       - name: Package Debian
         run: cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
 
+      - name: Verify package metadata
+        run: dpkg-deb --info packages/*.deb
+
+      - name: Generate checksums
+        run: |
+          sha256sum build-linux/kirkware > packages/SHA256SUMS
+          sha256sum packages/*.tar.gz packages/*.deb >> packages/SHA256SUMS
+
       - name: Upload Linux build
         uses: actions/upload-artifact@v4
         with:
@@ -61,6 +69,7 @@ jobs:
             build-linux/kirkware
             packages/*.tar.gz
             packages/*.deb
+            packages/SHA256SUMS
           if-no-files-found: error
 
   sanitizers:
