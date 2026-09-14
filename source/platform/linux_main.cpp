@@ -1,12 +1,11 @@
 #include "application.hpp"
 #include "linux_paths.hpp"
+#include "kirkware_version.hpp"
 
 #include <iostream>
 #include <string_view>
 
 namespace {
-
-constexpr std::string_view kVersion = "1.2.0-linux";
 
 void PrintUsage(const char* program)
 {
@@ -50,7 +49,7 @@ int main(int argc, char** argv)
             return 0;
         }
         if (argument == "--version") {
-            std::cout << "kirkware " << kVersion << '\n';
+            std::cout << "kirkware " << kirkware::build::kVersionLabel << '\n';
             return 0;
         }
         if (argument == "--paths") {
