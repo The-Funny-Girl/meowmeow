@@ -102,10 +102,7 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
              COMMAND kirkware --component-self-test $<TARGET_FILE:kirkware_component>)
     add_test(NAME linux-cli-bad-option COMMAND kirkware --definitely-invalid)
 
-    set(KIRKWARE_CLI_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/cli-test-home")
-    set(KIRKWARE_CLI_TEST_ENV
-        "HOME=${KIRKWARE_CLI_TEST_HOME};XDG_CONFIG_HOME=${KIRKWARE_CLI_TEST_HOME}/config;XDG_DATA_HOME=${KIRKWARE_CLI_TEST_HOME}/data;XDG_CACHE_HOME=${KIRKWARE_CLI_TEST_HOME}/cache;XDG_STATE_HOME=${KIRKWARE_CLI_TEST_HOME}/state;XDG_RUNTIME_DIR=${KIRKWARE_CLI_TEST_HOME}/runtime")
-    set_tests_properties(
+    set(KIRKWARE_CLI_TESTS
         linux-cli-check
         linux-cli-help
         linux-cli-game-info
@@ -114,7 +111,14 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
         linux-cli-settings
         linux-component-self-test
         linux-cli-bad-option
-        PROPERTIES ENVIRONMENT "${KIRKWARE_CLI_TEST_ENV}")
+    )
+    foreach(test_name IN LISTS KIRKWARE_CLI_TESTS)
+        set(test_home "${CMAKE_CURRENT_BINARY_DIR}/cli-test-home/${test_name}")
+        set(test_environment
+            "HOME=${test_home};XDG_CONFIG_HOME=${test_home}/config;XDG_DATA_HOME=${test_home}/data;XDG_CACHE_HOME=${test_home}/cache;XDG_STATE_HOME=${test_home}/state;XDG_RUNTIME_DIR=${test_home}/runtime")
+        set_tests_properties(${test_name}
+            PROPERTIES ENVIRONMENT "${test_environment}")
+    endforeach()
     set_tests_properties(linux-cli-bad-option PROPERTIES WILL_FAIL TRUE)
 endif()
 
