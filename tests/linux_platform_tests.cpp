@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "config_store.hpp"
 #include "file_utils.hpp"
 #include "linux_paths.hpp"
 #include "workspace.hpp"
@@ -99,6 +100,25 @@ int main()
            "ReadTextFile succeeds");
     Expect(text == "hello\n", "ReadTextFile preserves contents");
 
+    const fs::path settings_path = paths.config_root / "settings-test.conf";
+    kirkware::platform::LinuxSettings settings;
+    settings.keep_workspace = true;
+    settings.cleanup_stale_workspaces = false;
+    settings.workspace_retention_hours = 48;
+    Expect(kirkware::platform::SaveLinuxSettings(settings_path, settings, &error),
+           "SaveLinuxSettings succeeds");
+    kirkware::platform::LinuxSettings loaded_settings;
+    bool settings_existed = false;
+    Expect(kirkware::platform::LoadLinuxSettings(
+               settings_path, loaded_settings, settings_existed, &error),
+           "LoadLinuxSettings succeeds");
+    Expect(settings_existed, "settings file is detected");
+    Expect(loaded_settings.keep_workspace, "keep_workspace round trips");
+    Expect(!loaded_settings.cleanup_stale_workspaces,
+           "cleanup_stale_workspaces round trips");
+    Expect(loaded_settings.workspace_retention_hours == 48,
+           "workspace_retention_hours round trips");
+
     fs::path workspace_path;
     {
         auto workspace = kirkware::platform::TemporaryWorkspace::Create(
@@ -147,6 +167,8 @@ int main()
     kirkware::platform::ApplicationOptions options;
     Expect(application.Initialize(options, &error),
            "Application initialization succeeds");
+    Expect(fs::exists(application.settings_path()),
+           "Application creates linux.conf on first run");
     const auto checks = application.CheckHealth();
     Expect(!checks.empty(), "health checks are produced");
     for (const auto& check : checks)
