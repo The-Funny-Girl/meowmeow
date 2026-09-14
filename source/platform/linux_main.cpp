@@ -6,7 +6,7 @@
 
 namespace {
 
-constexpr std::string_view kVersion = "1.1.0-linux";
+constexpr std::string_view kVersion = "1.2.0-linux";
 
 void PrintUsage(const char* program)
 {
@@ -16,9 +16,22 @@ void PrintUsage(const char* program)
         << "  --help             Show this help text\n"
         << "  --version          Print the Linux port version\n"
         << "  --paths            Print resolved Linux/XDG paths\n"
+        << "  --settings         Print effective Linux runtime settings\n"
         << "  --check            Run filesystem/runtime health checks\n"
         << "  --no-workspace     Do not create a temporary workspace\n"
         << "  --keep-workspace   Keep the temporary workspace after exit\n";
+}
+
+void PrintSettings(const kirkware::platform::Application& application)
+{
+    const auto& settings = application.settings();
+    std::cout << "settings-file=" << application.settings_path() << '\n'
+              << "keep_workspace="
+              << (settings.keep_workspace ? "true" : "false") << '\n'
+              << "cleanup_stale_workspaces="
+              << (settings.cleanup_stale_workspaces ? "true" : "false") << '\n'
+              << "workspace_retention_hours="
+              << settings.workspace_retention_hours << '\n';
 }
 
 } // namespace
@@ -26,6 +39,7 @@ void PrintUsage(const char* program)
 int main(int argc, char** argv)
 {
     bool show_paths = false;
+    bool show_settings = false;
     bool run_checks = false;
     kirkware::platform::ApplicationOptions options;
 
@@ -41,6 +55,10 @@ int main(int argc, char** argv)
         }
         if (argument == "--paths") {
             show_paths = true;
+            continue;
+        }
+        if (argument == "--settings") {
+            show_settings = true;
             continue;
         }
         if (argument == "--check") {
@@ -74,6 +92,9 @@ int main(int argc, char** argv)
         }
     }
 
+    if (show_settings)
+        PrintSettings(application);
+
     if (run_checks) {
         bool all_ok = true;
         for (const auto& check : application.CheckHealth()) {
@@ -84,7 +105,7 @@ int main(int argc, char** argv)
         return all_ok ? 0 : 1;
     }
 
-    if (!show_paths) {
+    if (!show_paths && !show_settings) {
         std::cout << "kirkware Linux runtime initialized\n";
         std::cout << "config: " << application.paths().config_root << '\n';
         if (application.workspace())
