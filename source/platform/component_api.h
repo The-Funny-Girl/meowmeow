@@ -3,6 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#define KIRKWARE_COMPONENT_EXPORT __attribute__((visibility("default")))
+#else
+#define KIRKWARE_COMPONENT_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,9 +29,11 @@ typedef int (*KirkwareComponentInitializeFn)(KirkwareComponentStatus* status);
 typedef int (*KirkwareComponentPollFn)(KirkwareComponentStatus* status);
 typedef void (*KirkwareComponentShutdownFn)(void);
 
-int kirkware_component_initialize(KirkwareComponentStatus* status);
-int kirkware_component_poll(KirkwareComponentStatus* status);
-void kirkware_component_shutdown(void);
+KIRKWARE_COMPONENT_EXPORT int
+kirkware_component_initialize(KirkwareComponentStatus* status);
+KIRKWARE_COMPONENT_EXPORT int
+kirkware_component_poll(KirkwareComponentStatus* status);
+KIRKWARE_COMPONENT_EXPORT void kirkware_component_shutdown(void);
 
 #ifdef __cplusplus
 }
