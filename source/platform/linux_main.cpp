@@ -1,8 +1,10 @@
 #include "application.hpp"
+#include "component_loader.hpp"
 #include "game_integration.hpp"
 #include "linux_paths.hpp"
 #include "kirkware_version.hpp"
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -15,17 +17,18 @@ void PrintUsage(const char* program)
     std::cout
         << "Usage: " << program << " [options]\n\n"
         << "Options:\n"
-        << "  --help             Show this help text\n"
-        << "  --version          Print the Linux port version\n"
-        << "  --paths            Print resolved Linux/XDG paths\n"
-        << "  --settings         Print effective Linux runtime settings\n"
-        << "  --set KEY=VALUE    Persist a Linux runtime setting (repeatable)\n"
-        << "  --reset-settings   Restore default Linux runtime settings\n"
-        << "  --game-info        Show Garry's Mod/Steam discovery information\n"
-        << "  --launch-game      Launch Garry's Mod through Steam\n"
-        << "  --check            Run filesystem/runtime health checks\n"
-        << "  --no-workspace     Do not create a temporary workspace\n"
-        << "  --keep-workspace   Keep the temporary workspace after exit\n";
+        << "  --help                    Show this help text\n"
+        << "  --version                 Print the Linux port version\n"
+        << "  --paths                   Print resolved Linux/XDG paths\n"
+        << "  --settings                Print effective Linux runtime settings\n"
+        << "  --set KEY=VALUE           Persist a Linux runtime setting (repeatable)\n"
+        << "  --reset-settings          Restore default Linux runtime settings\n"
+        << "  --game-info               Show Garry's Mod/Steam discovery information\n"
+        << "  --launch-game             Launch Garry's Mod through Steam\n"
+        << "  --component-self-test SO  Load and test a cooperating Linux component\n"
+        << "  --check                   Run filesystem/runtime health checks\n"
+        << "  --no-workspace            Do not create a temporary workspace\n"
+        << "  --keep-workspace          Keep the temporary workspace after exit\n";
 }
 
 void PrintSettings(const kirkware::platform::Application& application)
@@ -40,6 +43,30 @@ void PrintSettings(const kirkware::platform::Application& application)
               << settings.workspace_retention_hours << '\n';
 }
 
+int RunComponentSelfTest(const std::filesystem::path& component_path)
+{
+    kirkware::platform::ComponentSession session;
+    std::string error;
+    if (!session.Open(component_path, &error)) {
+        std::cerr << "Unable to load Linux component: " << error << '\n';
+        return 1;
+    }
+
+    KirkwareComponentStatus status{};
+    if (!session.Poll(&status, &error)) {
+        std::cerr << "Linux component health poll failed: " << error << '\n';
+        return 1;
+    }
+
+    std::cout << "component-loaded=true\n"
+              << "component-abi=" << status.abi_version << '\n'
+              << "component-heartbeat=" << status.heartbeat << '\n'
+              << "tracer-pid=" << status.tracer_pid << '\n'
+              << "mapped-file-count=" << status.mapped_file_count << '\n'
+              << "component-detail=" << status.detail << '\n';
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -50,6 +77,7 @@ int main(int argc, char** argv)
     bool show_game_info = false;
     bool launch_game = false;
     bool reset_settings = false;
+    std::filesystem::path component_self_test_path;
     std::vector<std::string> settings_updates;
     kirkware::platform::ApplicationOptions options;
 
@@ -93,6 +121,15 @@ int main(int argc, char** argv)
             launch_game = true;
             continue;
         }
+        if (argument == "--component-self-test") {
+            if (index + 1 >= argc) {
+                std::cerr << "--component-self-test requires a shared-library path\n";
+                return 2;
+            }
+            component_self_test_path = argv[++index];
+            options.create_workspace = false;
+            continue;
+        }
         if (argument == "--check") {
             run_checks = true;
             continue;
@@ -116,6 +153,9 @@ int main(int argc, char** argv)
         std::cerr << "Initialization failed: " << error << '\n';
         return 1;
     }
+
+    if (!component_self_test_path.empty())
+        return RunComponentSelfTest(component_self_test_path);
 
     if (reset_settings || !settings_updates.empty()) {
         auto updated = reset_settings ? kirkware::platform::LinuxSettings{}

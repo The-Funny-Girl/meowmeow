@@ -1,4 +1,4 @@
-.TH KIRKWARE 1 "September 2026" "kirkware 1.3.0" "User Commands"
+.TH KIRKWARE 1 "September 2026" "kirkware 1.4.0" "User Commands"
 .SH NAME
 kirkware \- native Linux runtime and diagnostics
 .SH SYNOPSIS
@@ -7,8 +7,9 @@ kirkware \- native Linux runtime and diagnostics
 .SH DESCRIPTION
 .B kirkware
 provides the native Linux application runtime, settings, filesystem diagnostics,
-and supported Steam/Garry's Mod discovery and launch integration.
-It does not use the original Windows PE/bootstrap process chain.
+supported Steam/Garry's Mod discovery and launch integration, and a testable
+in-process Linux component lifecycle.
+The preserved Windows runtime remains separate.
 .SH OPTIONS
 .TP
 .BR -h , " --help"
@@ -23,11 +24,21 @@ Print resolved XDG and application paths.
 .B --settings
 Print effective Linux runtime settings.
 .TP
+.BI --set " KEY=VALUE"
+Persist a validated Linux runtime setting. The option may be repeated.
+.TP
+.B --reset-settings
+Restore default Linux runtime settings.
+.TP
 .B --game-info
 Search known Steam roots and Steam library folders for Garry's Mod app ID 4000.
 .TP
 .B --launch-game
 Request a normal Garry's Mod launch through Steam, falling back to the desktop Steam URI handler.
+.TP
+.BI --component-self-test " SO"
+Load the cooperating Linux component shared object into the current process,
+validate its ABI, poll its health status, and shut it down cleanly.
 .TP
 .B --check
 Run filesystem and runtime health checks.
@@ -47,6 +58,9 @@ Runtime log. If XDG_STATE_HOME is unset, ~/.local/state/kirkware/logs/kirkware.l
 .TP
 .I $XDG_RUNTIME_DIR/kirkware/workspaces
 Temporary locked workspaces when XDG_RUNTIME_DIR is available.
+.TP
+.I /usr/lib/kirkware/libkirkware_component.so
+Default system installation location for the Linux in-process component on systems using /usr/lib as the library directory.
 .SH SETTINGS
 The supported linux.conf keys are keep_workspace, cleanup_stale_workspaces, and workspace_retention_hours.
 .SH SEE ALSO
