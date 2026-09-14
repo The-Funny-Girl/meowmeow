@@ -132,6 +132,21 @@ int main()
     Expect(loaded_settings.workspace_retention_hours == 48,
            "workspace_retention_hours round trips");
 
+    kirkware::platform::LinuxSettings edited_settings;
+    Expect(kirkware::platform::ApplyLinuxSetting(
+               edited_settings, "keep_workspace=true", &error),
+           "ApplyLinuxSetting accepts boolean updates");
+    Expect(edited_settings.keep_workspace,
+           "ApplyLinuxSetting changes keep_workspace");
+    Expect(kirkware::platform::ApplyLinuxSetting(
+               edited_settings, "workspace_retention_hours=72", &error),
+           "ApplyLinuxSetting accepts retention updates");
+    Expect(edited_settings.workspace_retention_hours == 72,
+           "ApplyLinuxSetting changes retention hours");
+    Expect(!kirkware::platform::ApplyLinuxSetting(
+               edited_settings, "unknown=true", &error),
+           "ApplyLinuxSetting rejects unknown keys");
+
     const fs::path steam_root = root / "home" / ".local" / "share" / "Steam";
     const fs::path second_library = root / "steam-library";
     fs::create_directories(steam_root / "steamapps");
