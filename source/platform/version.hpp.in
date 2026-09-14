@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace kirkware::build {
+
+inline constexpr std::string_view kVersion = "@PROJECT_VERSION@";
+inline constexpr std::string_view kVersionLabel = "@PROJECT_VERSION@-linux";
+
+} // namespace kirkware::build
