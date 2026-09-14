@@ -1,10 +1,12 @@
 #pragma once
 
+#include "config_store.hpp"
 #include "linux_paths.hpp"
 #include "logger.hpp"
 #include "workspace.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,8 +20,9 @@ struct HealthCheck {
 
 struct ApplicationOptions {
     bool create_workspace = true;
-    bool keep_workspace = false;
-    bool cleanup_stale_workspaces = true;
+    std::optional<bool> keep_workspace;
+    std::optional<bool> cleanup_stale_workspaces;
+    std::optional<unsigned> workspace_retention_hours;
 };
 
 class Application {
@@ -28,6 +31,10 @@ public:
                     std::string* error = nullptr);
 
     const AppPaths& paths() const noexcept { return paths_; }
+    const LinuxSettings& settings() const noexcept { return settings_; }
+    const std::filesystem::path& settings_path() const noexcept {
+        return settings_path_;
+    }
     const TemporaryWorkspace* workspace() const noexcept {
         return workspace_.get();
     }
@@ -36,6 +43,8 @@ public:
 
 private:
     AppPaths paths_{};
+    LinuxSettings settings_{};
+    std::filesystem::path settings_path_;
     std::unique_ptr<Logger> logger_;
     std::unique_ptr<TemporaryWorkspace> workspace_;
 };
