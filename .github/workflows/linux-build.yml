@@ -1,0 +1,48 @@
+name: Linux build
+
+on:
+  push:
+    branches: [main, linux-port]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DKIRKWARE_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build-linux --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build-linux --output-on-failure
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: kirkware-linux-${{ matrix.compiler }}
+          path: build-linux/kirkware
+          if-no-files-found: error
