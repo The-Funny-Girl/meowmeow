@@ -4,7 +4,9 @@
 #include "kirkware_version.hpp"
 
 #include <iostream>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -17,6 +19,8 @@ void PrintUsage(const char* program)
         << "  --version          Print the Linux port version\n"
         << "  --paths            Print resolved Linux/XDG paths\n"
         << "  --settings         Print effective Linux runtime settings\n"
+        << "  --set KEY=VALUE    Persist a Linux runtime setting (repeatable)\n"
+        << "  --reset-settings   Restore default Linux runtime settings\n"
         << "  --game-info        Show Garry's Mod/Steam discovery information\n"
         << "  --launch-game      Launch Garry's Mod through Steam\n"
         << "  --check            Run filesystem/runtime health checks\n"
@@ -45,6 +49,8 @@ int main(int argc, char** argv)
     bool run_checks = false;
     bool show_game_info = false;
     bool launch_game = false;
+    bool reset_settings = false;
+    std::vector<std::string> settings_updates;
     kirkware::platform::ApplicationOptions options;
 
     for (int index = 1; index < argc; ++index) {
@@ -63,6 +69,20 @@ int main(int argc, char** argv)
         }
         if (argument == "--settings") {
             show_settings = true;
+            continue;
+        }
+        if (argument == "--set") {
+            if (index + 1 >= argc) {
+                std::cerr << "--set requires KEY=VALUE\n";
+                return 2;
+            }
+            settings_updates.emplace_back(argv[++index]);
+            options.create_workspace = false;
+            continue;
+        }
+        if (argument == "--reset-settings") {
+            reset_settings = true;
+            options.create_workspace = false;
             continue;
         }
         if (argument == "--game-info") {
@@ -95,6 +115,28 @@ int main(int argc, char** argv)
     if (!application.Initialize(options, &error)) {
         std::cerr << "Initialization failed: " << error << '\n';
         return 1;
+    }
+
+    if (reset_settings || !settings_updates.empty()) {
+        auto updated = reset_settings ? kirkware::platform::LinuxSettings{}
+                                      : application.settings();
+        for (const std::string& assignment : settings_updates) {
+            std::string setting_error;
+            if (!kirkware::platform::ApplyLinuxSetting(
+                    updated, assignment, &setting_error)) {
+                std::cerr << "Invalid setting '" << assignment
+                          << "': " << setting_error << '\n';
+                return 2;
+            }
+        }
+        std::string save_error;
+        if (!kirkware::platform::SaveLinuxSettings(
+                application.settings_path(), updated, &save_error)) {
+            std::cerr << "Unable to save settings: " << save_error << '\n';
+            return 1;
+        }
+        std::cout << "Settings saved to " << application.settings_path() << '\n';
+        return 0;
     }
 
     if (show_paths) {
