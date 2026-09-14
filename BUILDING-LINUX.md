@@ -17,7 +17,7 @@ cmake --build build-linux -j"$(nproc)"
 ctest --test-dir build-linux --output-on-failure
 ```
 
-The executable is `build-linux/kirkware`.
+The executable is `build-linux/kirkware` and the in-process Linux component is `build-linux/libkirkware_component.so`.
 
 The supplied presets are a shorter alternative when Ninja is installed:
 
@@ -44,11 +44,22 @@ ctest --preset linux-sanitize
 ./build-linux/kirkware --game-info
 ./build-linux/kirkware --check
 ./build-linux/kirkware --version
+./build-linux/kirkware --component-self-test ./build-linux/libkirkware_component.so
 ```
 
-`--game-info` searches common native Steam roots and `libraryfolders.vdf` entries for Garry's Mod app ID 4000 and reports the resolved library/install paths. `--launch-game` explicitly asks the normal Steam launcher (`steam -applaunch 4000`) to start the game, falling back to the desktop `steam://rungameid/4000` handler through `xdg-open`. This is ordinary launcher integration and does not use the Windows process/bootstrap chain.
+`--component-self-test` loads the Linux shared component into the current process through `dlopen`, validates ABI version 1, polls its heartbeat/integrity status, and shuts it down cleanly. CTest runs the same load/initialize/poll/shutdown path automatically.
+
+`--game-info` searches common native Steam roots and `libraryfolders.vdf` entries for Garry's Mod app ID 4000 and reports the resolved library/install paths. `--launch-game` explicitly asks the normal Steam launcher (`steam -applaunch 4000`) to start the game, falling back to the desktop `steam://rungameid/4000` handler through `xdg-open`.
 
 `--no-workspace` skips temporary workspace creation for diagnostics. `--keep-workspace` overrides the persisted setting for the current invocation.
+
+## Linux in-process component
+
+`libkirkware_component.so` is a real Linux shared component with a stable C ABI. Its current status snapshot reports an in-process heartbeat, Linux `TracerPid`, file-backed mapping count, ABI version, and status detail.
+
+The host-facing `ComponentSession` layer owns the lifecycle and validates the ABI before accepting a component. A protected application/game integration should load the shared component through a supported cooperating module/plugin/startup path and then use the same ABI lifecycle. The Linux runtime does not remotely attach to another process, write process memory, manually map an ELF object, or install remote hooks.
+
+See `docs/LINUX_COMPONENT_RUNTIME.md` for the ABI and lifecycle contract.
 
 ## Files and XDG locations
 
@@ -80,7 +91,7 @@ Install into a local prefix with:
 cmake --install build-linux --prefix "$HOME/.local"
 ```
 
-This places `kirkware` below `$HOME/.local/bin` by default.
+This places `kirkware` below `$HOME/.local/bin` and the Linux component below `$HOME/.local/lib/kirkware` by default.
 
 Create a portable `.tar.gz` package with:
 
@@ -92,17 +103,17 @@ On Debian/Ubuntu/Linux Mint systems, create an installable `.deb` with:
 
 ```sh
 cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
-sudo apt install ./packages/kirkware-linux_1.3.0_amd64.deb
+sudo apt install ./packages/kirkware-linux_1.4.0_amd64.deb
 ```
 
-The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binary.
+The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binary and component.
 
 GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, creates both package formats, validates Debian metadata, publishes SHA-256 checksums, and uploads the executable plus `.tar.gz` and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
 
 ## Scope of the current port
 
-The Linux target provides native application startup, XDG path discovery, persistent validated settings, private directory creation, bounded file I/O, atomic text-file replacement, logging, locked temporary workspace lifecycle management, stale workspace cleanup, Steam/Garry's Mod discovery and normal launcher integration, runtime health checks, a command-line interface, automated tests, packaging, and CI builds.
+The Linux target provides native application startup, XDG path discovery, persistent validated settings, private directory creation, bounded file I/O, atomic text-file replacement, logging, locked temporary workspace lifecycle management, stale workspace cleanup, Steam/Garry's Mod discovery and normal launcher integration, a loadable in-process Linux protection component with a stable ABI, runtime health checks, a command-line interface, automated tests, packaging, and CI builds.
 
-It deliberately does not compile the Windows PowerShell build, Windows SDK code, Direct3D 9/Win32 UI backend, PE resource loader, Windows DLL/bootstrap assets, BCrypt dependency, or Windows process/hook/bootstrap chain. Those pieces are not portable by changing compiler flags and require separate Linux-native designs.
+The original Windows process/bootstrap implementation remains preserved and isolated. The Linux component reproduces the surrounding lifecycle through a cooperating load path instead of translating remote process injection/manual mapping behavior.
 
-See `docs/LINUX_PORT_STATUS.md` and `docs/LINUX_ARCHITECTURE.md` for the current migration map and architecture boundary.
+See `docs/LINUX_PORT_STATUS.md`, `docs/LINUX_ARCHITECTURE.md`, and `docs/LINUX_COMPONENT_RUNTIME.md` for the current migration map and architecture boundary.
