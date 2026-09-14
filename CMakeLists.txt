@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kirkware_linux VERSION 1.2.0 LANGUAGES CXX)
+project(kirkware_linux VERSION 1.3.0 LANGUAGES CXX)
 
 if(NOT UNIX OR APPLE)
     message(FATAL_ERROR "The Linux port requires a Linux host.")
