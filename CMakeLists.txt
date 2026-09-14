@@ -11,6 +11,12 @@ include(CTest)
 
 option(KIRKWARE_BUILD_TESTS "Build Linux platform tests" ON)
 
+configure_file(
+    source/platform/version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/kirkware_version.hpp
+    @ONLY
+)
+
 add_library(kirkware_platform STATIC
     source/platform/application.cpp
     source/platform/config_store.cpp
@@ -22,6 +28,7 @@ add_library(kirkware_platform STATIC
 
 target_include_directories(kirkware_platform PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/source/platform
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 target_compile_features(kirkware_platform PUBLIC cxx_std_20)
@@ -56,3 +63,10 @@ endif()
 
 install(TARGETS kirkware RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES BUILDING-LINUX.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+set(CPACK_PACKAGE_NAME "kirkware-linux")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME
+    "kirkware-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_GENERATOR "TGZ")
+include(CPack)
