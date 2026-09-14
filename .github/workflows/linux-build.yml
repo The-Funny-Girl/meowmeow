@@ -43,8 +43,11 @@ jobs:
       - name: Install smoke test
         run: cmake --install build-linux --prefix "$PWD/install-root"
 
-      - name: Package
+      - name: Package tarball
         run: cpack --config build-linux/CPackConfig.cmake -G TGZ -B packages
+
+      - name: Package Debian
+        run: cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
 
       - name: Upload Linux build
         uses: actions/upload-artifact@v4
@@ -53,6 +56,7 @@ jobs:
           path: |
             build-linux/kirkware
             packages/*.tar.gz
+            packages/*.deb
           if-no-files-found: error
 
   sanitizers:
