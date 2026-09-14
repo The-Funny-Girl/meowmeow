@@ -17,7 +17,7 @@ The `linux-port` branch has a native CMake/C++20 runtime with:
 - CLI diagnostics (`--paths`, `--settings`, `--check`, `--version`).
 - Automated integration and CLI tests for paths, settings, file I/O, workspace locking/cleanup and application startup.
 - CMake Debug, Release and ASan/UBSan presets.
-- Install rules and CPack `.tar.gz` packaging.
+- Install rules plus portable `.tar.gz` and Debian/Ubuntu/Linux Mint `.deb` packages.
 - GitHub Actions builds/tests with GCC and Clang, downloadable executable/package artifacts, install smoke tests, and a dedicated Clang sanitizer job.
 
 ## Intentionally not part of the Linux target
@@ -38,7 +38,7 @@ The following areas therefore remain outside the native Linux target:
 
 ### Platform/runtime foundation — implemented
 
-Filesystem layout, validated settings, logging, workspace ownership/lifetime, diagnostics, testing, installation, packaging and CI are now native Linux components with no Windows binary dependency.
+Filesystem layout, validated settings, logging, workspace ownership/lifetime, diagnostics, testing, installation, distro-friendly packaging and CI are now native Linux components with no Windows binary dependency.
 
 ### Configuration — partially implemented
 
