@@ -14,8 +14,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preserve-windows-runtime:
+    name: preserve Windows runtime
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify preserved Windows runtime is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            base="HEAD^"
+          else
+            git fetch --no-tags origin main
+            base="origin/main"
+          fi
+
+          protected_paths=(
+            BUILD.ps1
+            BUILDING.txt
+            source/app.manifest
+            source/core
+            source/ui
+            source/assets/active-image-b1.bin
+            source/assets/bootstrap-b1.dll
+            source/assets/bootstrap-b2.dll
+            source/assets/reconstructed-bss.bin
+            source/assets/reconstructed-bss.mask.bin
+            source/assets/mbcinfo-template.bin
+          )
+
+          if ! git diff --quiet "$base" HEAD -- "${protected_paths[@]}"; then
+            echo "The preserved Windows runtime changed. Linux portability work must not modify these paths:"
+            git diff --name-only "$base" HEAD -- "${protected_paths[@]}"
+            exit 1
+          fi
+
+          echo "Preserved Windows runtime matches the comparison base."
+
   build:
     name: ${{ matrix.compiler }}
+    needs: preserve-windows-runtime
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -74,6 +120,7 @@ jobs:
 
   sanitizers:
     name: sanitizers
+    needs: preserve-windows-runtime
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
