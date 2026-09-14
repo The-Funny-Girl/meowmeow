@@ -56,7 +56,18 @@ bool EnsurePrivateDirectory(const fs::path& path, std::string* error)
                             ec.message());
         return false;
     }
-    if (!fs::is_directory(path, ec) || ec) {
+
+    const fs::file_status status = fs::symlink_status(path, ec);
+    if (ec) {
+        SetError(error, "unable to inspect " + path.string() + ": " +
+                            ec.message());
+        return false;
+    }
+    if (fs::is_symlink(status)) {
+        SetError(error, "refusing symlinked private directory " + path.string());
+        return false;
+    }
+    if (!fs::is_directory(status)) {
         SetError(error, path.string() + " is not a directory");
         return false;
     }
