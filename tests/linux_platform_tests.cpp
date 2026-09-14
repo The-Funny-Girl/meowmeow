@@ -3,6 +3,7 @@
 #include "linux_paths.hpp"
 #include "workspace.hpp"
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -110,6 +111,37 @@ int main()
     }
     Expect(!workspace_path.empty() && !fs::exists(workspace_path),
            "workspace is removed on destruction");
+
+    fs::path locked_workspace_path;
+    {
+        auto locked_workspace = kirkware::platform::TemporaryWorkspace::Create(
+            paths.workspaces, true, &error);
+        Expect(static_cast<bool>(locked_workspace),
+               "locked workspace creation succeeds");
+        if (locked_workspace) {
+            locked_workspace_path = locked_workspace->path();
+            std::error_code time_error;
+            fs::last_write_time(
+                locked_workspace_path,
+                fs::file_time_type::clock::now() - std::chrono::hours(48),
+                time_error);
+            Expect(!time_error, "workspace timestamp can be adjusted for test");
+            const std::size_t removed_while_locked =
+                kirkware::platform::CleanupStaleWorkspaces(
+                    paths.workspaces, std::chrono::hours(24), &error);
+            Expect(removed_while_locked == 0,
+                   "active locked workspace is not removed as stale");
+            Expect(fs::exists(locked_workspace_path),
+                   "active locked workspace still exists");
+        }
+    }
+    const std::size_t removed_after_unlock =
+        kirkware::platform::CleanupStaleWorkspaces(
+            paths.workspaces, std::chrono::hours(24), &error);
+    Expect(removed_after_unlock == 1,
+           "unlocked stale workspace is removed");
+    Expect(!locked_workspace_path.empty() && !fs::exists(locked_workspace_path),
+           "stale workspace disappears after unlock");
 
     kirkware::platform::Application application;
     kirkware::platform::ApplicationOptions options;
