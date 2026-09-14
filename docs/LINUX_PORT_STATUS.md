@@ -14,11 +14,13 @@ The `linux-port` branch has a native CMake/C++20 runtime with:
 - Temporary per-process workspaces with automatic cleanup.
 - File locks protecting active workspaces from stale-workspace cleanup.
 - Configurable stale-workspace retention.
-- CLI diagnostics (`--paths`, `--settings`, `--check`, `--version`).
-- Automated integration and CLI tests for paths, settings, file I/O, workspace locking/cleanup and application startup.
+- Native Steam library discovery for Garry's Mod app ID 4000, including secondary library folders.
+- Normal Linux game launching through `steam -applaunch 4000` or the desktop Steam URI handler.
+- CLI diagnostics (`--paths`, `--settings`, `--game-info`, `--check`, `--version`).
+- Automated integration and CLI tests for paths, settings, file I/O, Steam discovery, workspace locking/cleanup and application startup.
 - CMake Debug, Release and ASan/UBSan presets.
 - Install rules plus portable `.tar.gz` and Debian/Ubuntu/Linux Mint `.deb` packages.
-- GitHub Actions builds/tests with GCC and Clang, downloadable executable/package artifacts, install smoke tests, and a dedicated Clang sanitizer job.
+- GitHub Actions builds/tests with GCC and Clang, downloadable executable/package artifacts, SHA-256 checksums, install smoke tests, and a dedicated Clang sanitizer job.
 
 ## Intentionally not part of the Linux target
 
@@ -38,11 +40,15 @@ The following areas therefore remain outside the native Linux target:
 
 ### Platform/runtime foundation — implemented
 
-Filesystem layout, validated settings, logging, workspace ownership/lifetime, diagnostics, testing, installation, distro-friendly packaging and CI are now native Linux components with no Windows binary dependency.
+Filesystem layout, validated settings, logging, workspace ownership/lifetime, diagnostics, testing, installation, distro-friendly packaging and CI are native Linux components with no Windows binary dependency.
+
+### Safe game integration — implemented
+
+The Linux target can locate Garry's Mod through normal Steam metadata and launch it through supported user-level Steam mechanisms. This restores the original application's benign "run Garry's Mod" behavior without process injection or PE/bootstrap assumptions.
 
 ### Configuration — partially implemented
 
-The Linux runtime now has its own ordinary text settings file and safe file primitives. The original Windows config sanitizer still depends on an embedded PE resource and Win32 file APIs, so it is not linked into Linux. Any reusable schema/data parsing should be separated from that Windows resource validation before reuse.
+The Linux runtime has its own ordinary text settings file and safe file primitives. The original Windows config sanitizer still depends on an embedded PE resource and Win32 file APIs, so it is not linked into Linux. Any reusable schema/data parsing should be separated from that Windows resource validation before reuse.
 
 ### UI — not yet ported
 
