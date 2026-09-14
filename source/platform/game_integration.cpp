@@ -2,8 +2,11 @@
 
 #include "file_utils.hpp"
 
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <fcntl.h>
 #include <set>
 #include <string_view>
 #include <sys/wait.h>
@@ -75,8 +78,10 @@ std::vector<fs::path> CandidateSteamRoots(const fs::path& home)
     return {
         home / ".local" / "share" / "Steam",
         home / ".steam" / "steam",
+        home / ".steam" / "root",
         home / ".var" / "app" / "com.valvesoftware.Steam" / ".local" /
             "share" / "Steam",
+        home / "snap" / "steam" / "common" / ".local" / "share" / "Steam",
     };
 }
 
@@ -120,7 +125,10 @@ std::vector<fs::path> SteamLibraries(const fs::path& steam_root)
 
 bool IsExecutable(const fs::path& path)
 {
-    return !path.empty() && ::access(path.c_str(), X_OK) == 0;
+    if (path.empty() || ::access(path.c_str(), X_OK) != 0)
+        return false;
+    std::error_code ec;
+    return fs::is_regular_file(path, ec) && !ec;
 }
 
 fs::path FindOnPath(std::string_view name)
@@ -147,22 +155,67 @@ fs::path FindOnPath(std::string_view name)
     return {};
 }
 
+void ReportChildError(int fd, int error_number) noexcept
+{
+    const auto* bytes = reinterpret_cast<const char*>(&error_number);
+    std::size_t remaining = sizeof(error_number);
+    while (remaining != 0) {
+        const ssize_t written = ::write(fd, bytes + sizeof(error_number) - remaining,
+                                        remaining);
+        if (written > 0) {
+            remaining -= static_cast<std::size_t>(written);
+            continue;
+        }
+        if (written < 0 && errno == EINTR)
+            continue;
+        break;
+    }
+}
+
 bool SpawnDetached(const char* program,
                    const std::vector<std::string>& arguments,
                    std::string* error)
 {
+    int exec_status[2] = {-1, -1};
+    if (::pipe(exec_status) != 0) {
+        if (error)
+            *error = "unable to create launcher status pipe: " +
+                     std::string(std::strerror(errno));
+        return false;
+    }
+
+    const int flags = ::fcntl(exec_status[1], F_GETFD);
+    if (flags < 0 || ::fcntl(exec_status[1], F_SETFD, flags | FD_CLOEXEC) < 0) {
+        const int saved_errno = errno;
+        ::close(exec_status[0]);
+        ::close(exec_status[1]);
+        if (error)
+            *error = "unable to configure launcher status pipe: " +
+                     std::string(std::strerror(saved_errno));
+        return false;
+    }
+
     const pid_t child = ::fork();
     if (child < 0) {
+        const int saved_errno = errno;
+        ::close(exec_status[0]);
+        ::close(exec_status[1]);
         if (error)
-            *error = "unable to fork launcher process";
+            *error = "unable to fork launcher process: " +
+                     std::string(std::strerror(saved_errno));
         return false;
     }
     if (child == 0) {
-        if (::setsid() < 0)
+        ::close(exec_status[0]);
+        if (::setsid() < 0) {
+            ReportChildError(exec_status[1], errno);
             _exit(126);
+        }
         const pid_t grandchild = ::fork();
-        if (grandchild < 0)
+        if (grandchild < 0) {
+            ReportChildError(exec_status[1], errno);
             _exit(126);
+        }
         if (grandchild > 0)
             _exit(0);
 
@@ -173,14 +226,44 @@ bool SpawnDetached(const char* program,
             argv.push_back(const_cast<char*>(argument.c_str()));
         argv.push_back(nullptr);
         ::execvp(program, argv.data());
+        ReportChildError(exec_status[1], errno);
         _exit(127);
     }
 
+    ::close(exec_status[1]);
+
     int status = 0;
-    if (::waitpid(child, &status, 0) < 0 || !WIFEXITED(status) ||
-        WEXITSTATUS(status) != 0) {
+    pid_t waited = -1;
+    do {
+        waited = ::waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+
+    int child_errno = 0;
+    ssize_t received = -1;
+    do {
+        received = ::read(exec_status[0], &child_errno, sizeof(child_errno));
+    } while (received < 0 && errno == EINTR);
+    ::close(exec_status[0]);
+
+    if (waited < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        if (error) {
+            *error = child_errno != 0
+                         ? "unable to start detached launcher process: " +
+                               std::string(std::strerror(child_errno))
+                         : "unable to start detached launcher process";
+        }
+        return false;
+    }
+
+    if (received == static_cast<ssize_t>(sizeof(child_errno))) {
         if (error)
-            *error = "unable to start detached launcher process";
+            *error = "unable to execute launcher '" + std::string(program) +
+                     "': " + std::string(std::strerror(child_errno));
+        return false;
+    }
+    if (received != 0) {
+        if (error)
+            *error = "unable to read launcher execution status";
         return false;
     }
     return true;
