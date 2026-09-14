@@ -91,7 +91,10 @@ jobs:
         run: ctest --test-dir build-linux --output-on-failure
 
       - name: Install smoke test
-        run: cmake --install build-linux --prefix "$PWD/install-root"
+        run: |
+          cmake --install build-linux --prefix "$PWD/install-root"
+          test -x install-root/bin/kirkware
+          test -f install-root/lib/kirkware/libkirkware_component.so
 
       - name: Package tarball
         run: cpack --config build-linux/CPackConfig.cmake -G TGZ -B packages
@@ -104,7 +107,7 @@ jobs:
 
       - name: Generate checksums
         run: |
-          sha256sum build-linux/kirkware > packages/SHA256SUMS
+          sha256sum build-linux/kirkware build-linux/libkirkware_component.so > packages/SHA256SUMS
           sha256sum packages/*.tar.gz packages/*.deb >> packages/SHA256SUMS
 
       - name: Upload Linux build
@@ -113,6 +116,7 @@ jobs:
           name: kirkware-linux-${{ matrix.compiler }}
           path: |
             build-linux/kirkware
+            build-linux/libkirkware_component.so
             packages/*.tar.gz
             packages/*.deb
             packages/SHA256SUMS
