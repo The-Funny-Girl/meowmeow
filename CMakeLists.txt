@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kirkware_linux VERSION 1.3.0 LANGUAGES CXX)
+project(kirkware_linux VERSION 1.4.0 LANGUAGES CXX)
 
 if(NOT UNIX OR APPLE)
     message(FATAL_ERROR "The Linux port requires a Linux host.")
@@ -21,6 +21,7 @@ configure_file(
 
 add_library(kirkware_platform STATIC
     source/platform/application.cpp
+    source/platform/component_loader.cpp
     source/platform/config_store.cpp
     source/platform/file_utils.cpp
     source/platform/game_integration.cpp
@@ -36,6 +37,7 @@ target_include_directories(kirkware_platform PUBLIC
 
 target_compile_features(kirkware_platform PUBLIC cxx_std_20)
 target_compile_definitions(kirkware_platform PUBLIC KIRKWARE_PLATFORM_LINUX=1)
+target_link_libraries(kirkware_platform PUBLIC ${CMAKE_DL_LIBS})
 
 function(kirkware_configure_target target)
     target_compile_options(${target} PRIVATE
@@ -67,6 +69,18 @@ endfunction()
 
 kirkware_configure_target(kirkware_platform)
 
+add_library(kirkware_component SHARED source/platform/linux_component.cpp)
+target_include_directories(kirkware_component PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/platform
+)
+target_compile_features(kirkware_component PRIVATE cxx_std_20)
+target_compile_definitions(kirkware_component PRIVATE KIRKWARE_PLATFORM_LINUX=1)
+set_target_properties(kirkware_component PROPERTIES
+    OUTPUT_NAME kirkware_component
+    CXX_VISIBILITY_PRESET hidden
+)
+kirkware_configure_target(kirkware_component)
+
 add_executable(kirkware source/platform/linux_main.cpp)
 target_link_libraries(kirkware PRIVATE kirkware_platform)
 kirkware_configure_target(kirkware)
@@ -84,6 +98,8 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
              COMMAND kirkware --set workspace_retention_hours=48)
     add_test(NAME linux-cli-version COMMAND kirkware --version)
     add_test(NAME linux-cli-settings COMMAND kirkware --settings --no-workspace)
+    add_test(NAME linux-component-self-test
+             COMMAND kirkware --component-self-test $<TARGET_FILE:kirkware_component>)
     add_test(NAME linux-cli-bad-option COMMAND kirkware --definitely-invalid)
 
     set(KIRKWARE_CLI_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/cli-test-home")
@@ -96,12 +112,18 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
         linux-cli-setting-update
         linux-cli-version
         linux-cli-settings
+        linux-component-self-test
         linux-cli-bad-option
         PROPERTIES ENVIRONMENT "${KIRKWARE_CLI_TEST_ENV}")
     set_tests_properties(linux-cli-bad-option PROPERTIES WILL_FAIL TRUE)
 endif()
 
-install(TARGETS kirkware RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS kirkware
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(TARGETS kirkware_component
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/kirkware
+)
 install(FILES BUILDING-LINUX.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(FILES docs/kirkware.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
