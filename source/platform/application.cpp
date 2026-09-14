@@ -16,16 +16,32 @@ bool Application::Initialize(const ApplicationOptions& options,
     if (!EnsureAppDirectories(paths_, error))
         return false;
 
+    settings_path_ = paths_.config_root / "linux.conf";
+    bool settings_existed = false;
+    if (!LoadLinuxSettings(settings_path_, settings_, settings_existed, error))
+        return false;
+    if (!settings_existed && !SaveLinuxSettings(settings_path_, settings_, error))
+        return false;
+
+    if (options.keep_workspace)
+        settings_.keep_workspace = *options.keep_workspace;
+    if (options.cleanup_stale_workspaces)
+        settings_.cleanup_stale_workspaces = *options.cleanup_stale_workspaces;
+    if (options.workspace_retention_hours)
+        settings_.workspace_retention_hours = *options.workspace_retention_hours;
+
     logger_ = std::make_unique<Logger>(paths_.logs / "kirkware.log");
     if (!logger_->Initialize(error))
         return false;
 
     logger_->Write(LogLevel::Info, "Linux application initialization started");
 
-    if (options.cleanup_stale_workspaces) {
+    if (settings_.cleanup_stale_workspaces) {
         std::string cleanup_error;
         const std::size_t removed = CleanupStaleWorkspaces(
-            paths_.workspaces, std::chrono::hours(24), &cleanup_error);
+            paths_.workspaces,
+            std::chrono::hours(settings_.workspace_retention_hours),
+            &cleanup_error);
         if (!cleanup_error.empty()) {
             logger_->Write(LogLevel::Warning, cleanup_error);
         } else if (removed != 0) {
@@ -37,7 +53,7 @@ bool Application::Initialize(const ApplicationOptions& options,
 
     if (options.create_workspace) {
         workspace_ = TemporaryWorkspace::Create(
-            paths_.workspaces, options.keep_workspace, error);
+            paths_.workspaces, settings_.keep_workspace, error);
         if (!workspace_) {
             logger_->Write(LogLevel::Error, "workspace creation failed");
             return false;
@@ -58,6 +74,8 @@ std::vector<HealthCheck> Application::CheckHealth() const
         const bool ok = ProbeWritableDirectory(path, &error);
         checks.push_back({name, ok, ok ? path.string() : std::move(error)});
     }
+    checks.push_back({"settings-file", std::filesystem::exists(settings_path_),
+                      settings_path_.string()});
     if (logger_) {
         checks.push_back({"log-file", std::filesystem::exists(logger_->path()),
                           logger_->path().string()});
