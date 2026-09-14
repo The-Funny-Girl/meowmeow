@@ -40,9 +40,17 @@ jobs:
       - name: Test
         run: ctest --test-dir build-linux --output-on-failure
 
-      - name: Upload executable
+      - name: Install smoke test
+        run: cmake --install build-linux --prefix "$PWD/install-root"
+
+      - name: Package
+        run: cpack --config build-linux/CPackConfig.cmake -G TGZ -B packages
+
+      - name: Upload Linux build
         uses: actions/upload-artifact@v4
         with:
           name: kirkware-linux-${{ matrix.compiler }}
-          path: build-linux/kirkware
+          path: |
+            build-linux/kirkware
+            packages/*.tar.gz
           if-no-files-found: error
