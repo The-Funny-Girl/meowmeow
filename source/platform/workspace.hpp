@@ -28,10 +28,14 @@ public:
     bool Cleanup(std::string* error = nullptr);
 
 private:
-    explicit TemporaryWorkspace(std::filesystem::path path, bool keep_on_exit);
+    TemporaryWorkspace(std::filesystem::path path,
+                       bool keep_on_exit,
+                       int lock_fd);
+    void CloseLock() noexcept;
 
     std::filesystem::path path_;
     bool keep_on_exit_ = false;
+    int lock_fd_ = -1;
 };
 
 std::size_t CleanupStaleWorkspaces(
