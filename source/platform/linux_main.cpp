@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "game_integration.hpp"
 #include "linux_paths.hpp"
 #include "kirkware_version.hpp"
 
@@ -16,6 +17,8 @@ void PrintUsage(const char* program)
         << "  --version          Print the Linux port version\n"
         << "  --paths            Print resolved Linux/XDG paths\n"
         << "  --settings         Print effective Linux runtime settings\n"
+        << "  --game-info        Show Garry's Mod/Steam discovery information\n"
+        << "  --launch-game      Launch Garry's Mod through Steam\n"
         << "  --check            Run filesystem/runtime health checks\n"
         << "  --no-workspace     Do not create a temporary workspace\n"
         << "  --keep-workspace   Keep the temporary workspace after exit\n";
@@ -40,6 +43,8 @@ int main(int argc, char** argv)
     bool show_paths = false;
     bool show_settings = false;
     bool run_checks = false;
+    bool show_game_info = false;
+    bool launch_game = false;
     kirkware::platform::ApplicationOptions options;
 
     for (int index = 1; index < argc; ++index) {
@@ -58,6 +63,14 @@ int main(int argc, char** argv)
         }
         if (argument == "--settings") {
             show_settings = true;
+            continue;
+        }
+        if (argument == "--game-info") {
+            show_game_info = true;
+            continue;
+        }
+        if (argument == "--launch-game") {
+            launch_game = true;
             continue;
         }
         if (argument == "--check") {
@@ -94,6 +107,33 @@ int main(int argc, char** argv)
     if (show_settings)
         PrintSettings(application);
 
+    if (show_game_info) {
+        const auto game = kirkware::platform::DiscoverGarrysMod();
+        const auto launcher = kirkware::platform::DetectSteamLaunchMethod();
+        std::cout << "game-found=" << (game.found ? "true" : "false") << '\n'
+                  << "launcher="
+                  << kirkware::platform::SteamLaunchMethodName(launcher) << '\n'
+                  << "game-detail=" << game.detail << '\n';
+        if (game.found) {
+            std::cout << "steam-root=" << game.steam_root << '\n'
+                      << "library-root=" << game.library_root << '\n'
+                      << "manifest=" << game.manifest_path << '\n'
+                      << "install-root=" << game.install_root << '\n';
+        }
+    }
+
+    if (launch_game) {
+        std::string launch_error;
+        if (!kirkware::platform::LaunchGarrysMod(&launch_error)) {
+            std::cerr << "Unable to launch Garry's Mod: " << launch_error << '\n';
+            return 1;
+        }
+        std::cout << "Garry's Mod launch request sent through "
+                  << kirkware::platform::SteamLaunchMethodName(
+                         kirkware::platform::DetectSteamLaunchMethod())
+                  << '\n';
+    }
+
     if (run_checks) {
         bool all_ok = true;
         for (const auto& check : application.CheckHealth()) {
@@ -104,7 +144,7 @@ int main(int argc, char** argv)
         return all_ok ? 0 : 1;
     }
 
-    if (!show_paths && !show_settings) {
+    if (!show_paths && !show_settings && !show_game_info && !launch_game) {
         std::cout << "kirkware Linux runtime initialized\n";
         std::cout << "config: " << application.paths().config_root << '\n';
         if (application.workspace())
