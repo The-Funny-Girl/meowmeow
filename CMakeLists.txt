@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kirkware_linux VERSION 1.1.0 LANGUAGES CXX)
+project(kirkware_linux VERSION 1.2.0 LANGUAGES CXX)
 
 if(NOT UNIX OR APPLE)
     message(FATAL_ERROR "The Linux port requires a Linux host.")
@@ -13,6 +13,7 @@ option(KIRKWARE_BUILD_TESTS "Build Linux platform tests" ON)
 
 add_library(kirkware_platform STATIC
     source/platform/application.cpp
+    source/platform/config_store.cpp
     source/platform/file_utils.cpp
     source/platform/linux_paths.cpp
     source/platform/logger.cpp
