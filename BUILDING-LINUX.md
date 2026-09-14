@@ -92,7 +92,7 @@ On Debian/Ubuntu/Linux Mint systems, create an installable `.deb` with:
 
 ```sh
 cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
-sudo apt install ./packages/kirkware-linux_1.2.0_amd64.deb
+sudo apt install ./packages/kirkware-linux_1.3.0_amd64.deb
 ```
 
 The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binary.
