@@ -10,6 +10,8 @@ include(GNUInstallDirs)
 include(CTest)
 
 option(KIRKWARE_BUILD_TESTS "Build Linux platform tests" ON)
+option(KIRKWARE_ENABLE_SANITIZERS "Enable ASan/UBSan for Linux development" OFF)
+option(KIRKWARE_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 configure_file(
     source/platform/version.hpp.in
@@ -34,7 +36,7 @@ target_include_directories(kirkware_platform PUBLIC
 target_compile_features(kirkware_platform PUBLIC cxx_std_20)
 target_compile_definitions(kirkware_platform PUBLIC KIRKWARE_PLATFORM_LINUX=1)
 
-function(kirkware_enable_warnings target)
+function(kirkware_configure_target target)
     target_compile_options(${target} PRIVATE
         -Wall
         -Wextra
@@ -44,21 +46,42 @@ function(kirkware_enable_warnings target)
         -Wformat=2
         -Wundef
     )
+    if(KIRKWARE_WARNINGS_AS_ERRORS)
+        target_compile_options(${target} PRIVATE -Werror)
+    endif()
+    if(KIRKWARE_ENABLE_SANITIZERS)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target} PRIVATE
+                -fsanitize=address,undefined
+                -fno-omit-frame-pointer
+            )
+            target_link_options(${target} PRIVATE
+                -fsanitize=address,undefined
+            )
+        else()
+            message(FATAL_ERROR "Sanitizers require GCC or Clang")
+        endif()
+    endif()
 endfunction()
 
-kirkware_enable_warnings(kirkware_platform)
+kirkware_configure_target(kirkware_platform)
 
 add_executable(kirkware source/platform/linux_main.cpp)
 target_link_libraries(kirkware PRIVATE kirkware_platform)
-kirkware_enable_warnings(kirkware)
+kirkware_configure_target(kirkware)
 
 if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
     add_executable(kirkware_platform_tests tests/linux_platform_tests.cpp)
     target_link_libraries(kirkware_platform_tests PRIVATE kirkware_platform)
-    kirkware_enable_warnings(kirkware_platform_tests)
+    kirkware_configure_target(kirkware_platform_tests)
 
     add_test(NAME linux-platform COMMAND kirkware_platform_tests)
     add_test(NAME linux-cli-check COMMAND kirkware --check --no-workspace)
+    add_test(NAME linux-cli-help COMMAND kirkware --help)
+    add_test(NAME linux-cli-version COMMAND kirkware --version)
+    add_test(NAME linux-cli-settings COMMAND kirkware --settings --no-workspace)
+    add_test(NAME linux-cli-bad-option COMMAND kirkware --definitely-invalid)
+    set_tests_properties(linux-cli-bad-option PROPERTIES WILL_FAIL TRUE)
 endif()
 
 install(TARGETS kirkware RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
