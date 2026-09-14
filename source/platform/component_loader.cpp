@@ -8,6 +8,13 @@
 namespace kirkware::platform {
 namespace {
 
+void PrepareStatus(KirkwareComponentStatus& status)
+{
+    status = {};
+    status.abi_version = KIRKWARE_COMPONENT_ABI_VERSION;
+    status.struct_size = static_cast<uint32_t>(sizeof(KirkwareComponentStatus));
+}
+
 bool ValidateStatus(const KirkwareComponentStatus& status, std::string* error)
 {
     if (status.abi_version != KIRKWARE_COMPONENT_ABI_VERSION) {
@@ -72,17 +79,26 @@ bool ComponentSession::Open(const std::filesystem::path& library_path,
 
     initialize_ = Resolve<KirkwareComponentInitializeFn>(
         handle_, "kirkware_component_initialize", error);
-    poll_ = Resolve<KirkwareComponentPollFn>(
-        handle_, "kirkware_component_poll", error);
-    shutdown_ = Resolve<KirkwareComponentShutdownFn>(
-        handle_, "kirkware_component_shutdown", error);
-
-    if (initialize_ == nullptr || poll_ == nullptr || shutdown_ == nullptr) {
+    if (initialize_ == nullptr) {
         Close();
         return false;
     }
 
-    initial_status_ = {};
+    poll_ = Resolve<KirkwareComponentPollFn>(
+        handle_, "kirkware_component_poll", error);
+    if (poll_ == nullptr) {
+        Close();
+        return false;
+    }
+
+    shutdown_ = Resolve<KirkwareComponentShutdownFn>(
+        handle_, "kirkware_component_shutdown", error);
+    if (shutdown_ == nullptr) {
+        Close();
+        return false;
+    }
+
+    PrepareStatus(initial_status_);
     if (initialize_(&initial_status_) != 0) {
         if (error != nullptr)
             *error = "component initialization returned an error";
@@ -112,7 +128,7 @@ bool ComponentSession::Poll(KirkwareComponentStatus* status,
         return false;
     }
 
-    *status = {};
+    PrepareStatus(*status);
     if (poll_(status) != 0) {
         if (error != nullptr)
             *error = "component poll returned an error";
