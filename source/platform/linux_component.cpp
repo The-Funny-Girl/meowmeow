@@ -10,6 +10,13 @@ namespace {
 
 std::atomic<uint64_t> g_heartbeat{0};
 
+bool AcceptStatusBuffer(const KirkwareComponentStatus* status)
+{
+    return status != nullptr &&
+           status->abi_version == KIRKWARE_COMPONENT_ABI_VERSION &&
+           status->struct_size == sizeof(KirkwareComponentStatus);
+}
+
 int ReadTracerPid()
 {
     std::ifstream input("/proc/self/status");
@@ -17,8 +24,9 @@ int ReadTracerPid()
     while (input >> key) {
         if (key == "TracerPid:") {
             int tracer = 0;
-            input >> tracer;
-            return tracer;
+            if (input >> tracer)
+                return tracer;
+            return -1;
         }
         std::string rest;
         std::getline(input, rest);
@@ -54,7 +62,7 @@ void FillStatus(KirkwareComponentStatus* status, const char* detail)
 
 extern "C" int kirkware_component_initialize(KirkwareComponentStatus* status)
 {
-    if (status == nullptr)
+    if (!AcceptStatusBuffer(status))
         return -1;
 
     FillStatus(status, "linux in-process component initialized");
@@ -63,7 +71,7 @@ extern "C" int kirkware_component_initialize(KirkwareComponentStatus* status)
 
 extern "C" int kirkware_component_poll(KirkwareComponentStatus* status)
 {
-    if (status == nullptr)
+    if (!AcceptStatusBuffer(status))
         return -1;
 
     FillStatus(status, "linux in-process component healthy");
