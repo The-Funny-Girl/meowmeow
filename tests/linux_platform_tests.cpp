@@ -78,6 +78,15 @@ int main()
 
     kirkware::platform::AppPaths paths;
     std::string error;
+    {
+        ScopedEnvironment bad_config("XDG_CONFIG_HOME", "relative-path");
+        kirkware::platform::AppPaths invalid_paths;
+        std::string invalid_error;
+        Expect(!kirkware::platform::DiscoverAppPaths(
+                   invalid_paths, &invalid_error),
+               "relative XDG_CONFIG_HOME is rejected");
+    }
+
     Expect(kirkware::platform::DiscoverAppPaths(paths, &error),
            "DiscoverAppPaths succeeds with XDG paths");
     Expect(paths.config_root == root / "config" / "kirkware",
@@ -99,6 +108,9 @@ int main()
     Expect(kirkware::platform::ReadTextFile(text_path, 1024, text, &error),
            "ReadTextFile succeeds");
     Expect(text == "hello\n", "ReadTextFile preserves contents");
+    std::string too_small;
+    Expect(!kirkware::platform::ReadTextFile(text_path, 3, too_small, &error),
+           "ReadTextFile enforces maximum size");
 
     const fs::path settings_path = paths.config_root / "settings-test.conf";
     kirkware::platform::LinuxSettings settings;
@@ -118,6 +130,18 @@ int main()
            "cleanup_stale_workspaces round trips");
     Expect(loaded_settings.workspace_retention_hours == 48,
            "workspace_retention_hours round trips");
+
+    const fs::path invalid_settings_path =
+        paths.config_root / "settings-invalid.conf";
+    Expect(kirkware::platform::AtomicWriteText(
+               invalid_settings_path, "unknown_key=true\n", &error),
+           "invalid settings fixture can be written");
+    kirkware::platform::LinuxSettings invalid_settings;
+    bool invalid_settings_existed = false;
+    Expect(!kirkware::platform::LoadLinuxSettings(
+               invalid_settings_path, invalid_settings,
+               invalid_settings_existed, &error),
+           "unknown Linux setting is rejected");
 
     fs::path workspace_path;
     {
