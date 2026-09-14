@@ -3,7 +3,11 @@
 #include "file_utils.hpp"
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/file.h>
 #include <system_error>
 #include <unistd.h>
 
@@ -13,6 +17,7 @@ namespace kirkware::platform {
 namespace {
 
 std::atomic<unsigned long long> g_workspace_counter{0};
+constexpr const char* kLockFileName = ".workspace.lock";
 
 fs::path CandidatePath(const fs::path& root)
 {
@@ -23,10 +28,45 @@ fs::path CandidatePath(const fs::path& root)
                    std::to_string(now) + "-" + std::to_string(counter));
 }
 
+int AcquireWorkspaceLock(const fs::path& directory, std::string* error)
+{
+    const fs::path lock_path = directory / kLockFileName;
+    const int fd = ::open(lock_path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        if (error)
+            *error = "unable to open workspace lock " + lock_path.string() +
+                     ": " + std::strerror(errno);
+        return -1;
+    }
+    if (::flock(fd, LOCK_EX | LOCK_NB) == 0)
+        return fd;
+    if (error)
+        *error = "unable to lock workspace " + directory.string() + ": " +
+                 std::strerror(errno);
+    ::close(fd);
+    return -1;
+}
+
+bool WorkspaceIsActive(const fs::path& directory)
+{
+    const fs::path lock_path = directory / kLockFileName;
+    const int fd = ::open(lock_path.c_str(), O_RDWR | O_CLOEXEC);
+    if (fd < 0)
+        return false;
+    const bool active = ::flock(fd, LOCK_EX | LOCK_NB) != 0 &&
+                        (errno == EWOULDBLOCK || errno == EAGAIN);
+    if (!active)
+        ::flock(fd, LOCK_UN);
+    ::close(fd);
+    return active;
+}
+
 } // namespace
 
-TemporaryWorkspace::TemporaryWorkspace(fs::path path, bool keep_on_exit)
-    : path_(std::move(path)), keep_on_exit_(keep_on_exit)
+TemporaryWorkspace::TemporaryWorkspace(fs::path path,
+                                       bool keep_on_exit,
+                                       int lock_fd)
+    : path_(std::move(path)), keep_on_exit_(keep_on_exit), lock_fd_(lock_fd)
 {
 }
 
@@ -34,13 +74,17 @@ TemporaryWorkspace::~TemporaryWorkspace()
 {
     if (!keep_on_exit_)
         Cleanup(nullptr);
+    CloseLock();
 }
 
 TemporaryWorkspace::TemporaryWorkspace(TemporaryWorkspace&& other) noexcept
-    : path_(std::move(other.path_)), keep_on_exit_(other.keep_on_exit_)
+    : path_(std::move(other.path_)),
+      keep_on_exit_(other.keep_on_exit_),
+      lock_fd_(other.lock_fd_)
 {
     other.path_.clear();
     other.keep_on_exit_ = true;
+    other.lock_fd_ = -1;
 }
 
 TemporaryWorkspace& TemporaryWorkspace::operator=(
@@ -50,11 +94,23 @@ TemporaryWorkspace& TemporaryWorkspace::operator=(
         return *this;
     if (!keep_on_exit_)
         Cleanup(nullptr);
+    CloseLock();
     path_ = std::move(other.path_);
     keep_on_exit_ = other.keep_on_exit_;
+    lock_fd_ = other.lock_fd_;
     other.path_.clear();
     other.keep_on_exit_ = true;
+    other.lock_fd_ = -1;
     return *this;
+}
+
+void TemporaryWorkspace::CloseLock() noexcept
+{
+    if (lock_fd_ < 0)
+        return;
+    ::flock(lock_fd_, LOCK_UN);
+    ::close(lock_fd_);
+    lock_fd_ = -1;
 }
 
 std::unique_ptr<TemporaryWorkspace> TemporaryWorkspace::Create(
@@ -84,8 +140,13 @@ std::unique_ptr<TemporaryWorkspace> TemporaryWorkspace::Create(
                 *error = "unable to set workspace permissions";
             return nullptr;
         }
+        const int lock_fd = AcquireWorkspaceLock(candidate, error);
+        if (lock_fd < 0) {
+            fs::remove_all(candidate, ec);
+            return nullptr;
+        }
         return std::unique_ptr<TemporaryWorkspace>(
-            new TemporaryWorkspace(candidate, keep_on_exit));
+            new TemporaryWorkspace(candidate, keep_on_exit, lock_fd));
     }
 
     if (error)
@@ -106,6 +167,7 @@ bool TemporaryWorkspace::Cleanup(std::string* error)
         return false;
     }
     path_.clear();
+    CloseLock();
     return true;
 }
 
@@ -138,7 +200,7 @@ std::size_t CleanupStaleWorkspaces(const fs::path& root,
         if (name.rfind("session-", 0) != 0)
             continue;
         const auto modified = entry.last_write_time(item_ec);
-        if (item_ec || modified >= cutoff)
+        if (item_ec || modified >= cutoff || WorkspaceIsActive(entry.path()))
             continue;
         fs::remove_all(entry.path(), item_ec);
         if (!item_ec)
