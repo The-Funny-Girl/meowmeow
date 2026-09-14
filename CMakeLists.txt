@@ -23,6 +23,7 @@ add_library(kirkware_platform STATIC
     source/platform/application.cpp
     source/platform/config_store.cpp
     source/platform/file_utils.cpp
+    source/platform/game_integration.cpp
     source/platform/linux_paths.cpp
     source/platform/logger.cpp
     source/platform/workspace.cpp
@@ -78,6 +79,7 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
     add_test(NAME linux-platform COMMAND kirkware_platform_tests)
     add_test(NAME linux-cli-check COMMAND kirkware --check --no-workspace)
     add_test(NAME linux-cli-help COMMAND kirkware --help)
+    add_test(NAME linux-cli-game-info COMMAND kirkware --game-info --no-workspace)
     add_test(NAME linux-cli-version COMMAND kirkware --version)
     add_test(NAME linux-cli-settings COMMAND kirkware --settings --no-workspace)
     add_test(NAME linux-cli-bad-option COMMAND kirkware --definitely-invalid)
