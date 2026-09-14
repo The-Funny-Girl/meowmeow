@@ -79,13 +79,22 @@ cmake --install build-linux --prefix "$HOME/.local"
 
 This places `kirkware` below `$HOME/.local/bin` by default.
 
-Create a distributable `.tar.gz` package with:
+Create a portable `.tar.gz` package with:
 
 ```sh
 cpack --config build-linux/CPackConfig.cmake -G TGZ -B packages
 ```
 
-GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, creates the package, and uploads both the executable and package as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
+On Debian/Ubuntu/Linux Mint systems, create an installable `.deb` with:
+
+```sh
+cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
+sudo apt install ./packages/kirkware-linux_1.2.0_amd64.deb
+```
+
+The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binary.
+
+GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, creates both package formats, and uploads the executable plus `.tar.gz` and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
 
 ## Scope of the current port
 
