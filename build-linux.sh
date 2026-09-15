@@ -154,10 +154,10 @@ fi
 
 command -v cmake >/dev/null 2>&1 || \
     fail "cmake is missing; run ./build-linux.sh --install-deps"
-command -v pkg-config >/dev/null 2>&1 || \
-    fail "pkg-config is missing; run ./build-linux.sh --install-deps"
 
 if [[ "$BUILD_UI" == "ON" ]]; then
+    command -v pkg-config >/dev/null 2>&1 || \
+        fail "pkg-config is missing; run ./build-linux.sh --install-deps"
     missing_modules=()
     for module in sdl2 SDL2_image freetype2; do
         if ! pkg-config --exists "$module"; then
