@@ -33,28 +33,13 @@ Press **Insert** to open/close the in-game menu. `kirkware_menu` toggles the sam
 The menu is divided into:
 
 - **Aim** — legit/rage targeting, hitscan, triggerbot, recoil and target controls
-- **Visuals** — player/entity ESP, outlines, chams-style viewmodel tints, tracers, hit feedback
-- **Misc** — movement, camera, spectator and HUD helpers
+- **Visuals** — player/entity ESP, outlines, viewmodel tints, tracers, hit feedback and crosshair options
+- **Misc** — movement, camera, pathfinder, notifications and HUD helpers
 - **Players** — cycle each player through normal / ignore / priority / friend
+- **Hotkeys** — assign persistent toggle keys to registered modules
 - **Tuning** — FOV, smoothing, distances, freecam speed and tracer lifetime
 
-Module state is saved to:
-
-```text
-garrysmod/data/kirkware_linux/modules.json
-```
-
-Player rules are saved to:
-
-```text
-garrysmod/data/kirkware_linux/players.json
-```
-
-Module hotkeys are saved to:
-
-```text
-garrysmod/data/kirkware_linux/binds.json
-```
+Module state is saved to `garrysmod/data/kirkware_linux/modules.json`, player rules to `players.json`, and module hotkeys to `binds.json`.
 
 ## Aim modules
 
@@ -75,7 +60,7 @@ Current supported aim modules include:
 - `rage_visible_check`
 - `esp_target_line`
 
-Important tuning convars include:
+Important tuning convars:
 
 ```text
 kirkware_legit_fov 6
@@ -92,19 +77,33 @@ kirkware_legit_require_attack 1
 
 Player/entity/viewmodel features include:
 
-- names and 2D boxes
-- health/armor bars
+- player names and 2D boxes
+- health/armor bars and optional numeric values
 - distance, weapon and velocity
 - skeleton
-- team/usergroup/noclip information
+- team/usergroup/noclip/cloaked information
 - offscreen arrows
 - supported entity names/distances/boxes/indexes
 - through-world player halo outlines
-- center crosshair
+- rule-aware priority/friend/ignore outline colors
+- center crosshair with outline/rainbow/size/gap/thickness controls
+- team-colored ESP option
+- optional Steam profile names
+- anonymous ESP-name mode
 - target line
 - hit marker / local hit sound
 - first-person hand/weapon material tint
 - local bullet tracers
+
+Additional visual convars:
+
+```text
+kirkware_crosshair_size 7
+kirkware_crosshair_gap 2
+kirkware_crosshair_thickness 1
+kirkware_crosshair_rainbow_speed 90
+kirkware_tracer_time 0.8
+```
 
 ## Misc / movement / camera
 
@@ -112,6 +111,7 @@ Current supported helpers include:
 
 - third person
 - normal FOV override
+- local viewmodel FOV override with restoration on disable
 - zoom
 - freecam
 - bunnyhop helper
@@ -121,6 +121,7 @@ Current supported helpers include:
 - use spam
 - spectator list
 - enabled-module HUD list
+- local join/leave notices that respect anonymous mode
 - watermark
 
 Additional tuning convars:
@@ -128,12 +129,47 @@ Additional tuning convars:
 ```text
 kirkware_fov 100
 kirkware_zoom_fov 40
+kirkware_viewmodel_fov 54
 kirkware_thirdperson_distance 110
 kirkware_entity_distance 2500
 kirkware_freecam_speed 650
 kirkware_freecam_boost 3
-kirkware_tracer_time 0.8
 ```
+
+## Pathfinder
+
+The supported pathfinder consumes an existing map navmesh. It does not generate, edit or save navmesh data.
+
+Modules include:
+
+- `misc_pathfinder_enable`
+- `misc_pathfinder_set_target`
+- `misc_pathfinder_clear_target`
+- `misc_pathfinder_walk_path`
+- `misc_pathfinder_visualize`
+- `misc_pathfinder_aim`
+- `misc_pathfinder_jump`
+- `misc_pathfinder_crouch`
+- `misc_pathfinder_run`
+
+`set path target` is a one-shot action: it uses the world point under the crosshair, computes an A* route across connected nav areas, and enables path walking on success. Because it is a normal module action, it can also be assigned a key from the Hotkeys page.
+
+Console equivalents:
+
+```text
+kirkware_path_set
+kirkware_path_clear
+kirkware_path_status
+```
+
+Tuning:
+
+```text
+kirkware_path_tolerance 45
+kirkware_path_max_areas 4096
+```
+
+Maps without a loaded navmesh cannot use this feature.
 
 ## Player rules
 
@@ -144,7 +180,7 @@ The Players page cycles a player through:
 - `priority`
 - `friend`
 
-Aim targeting never selects `ignore` or `friend`. `priority` receives target-selection preference when it is otherwise a valid target.
+Aim targeting never selects `ignore` or `friend`. `priority` receives target-selection preference when it is otherwise a valid target. Player outlines also use rule-aware colors.
 
 Console equivalents:
 
@@ -156,7 +192,7 @@ kirkware_player_rules_clear
 
 ## Module hotkeys
 
-Insert is permanently reserved for the menu. Any registered module can otherwise be assigned a toggle key:
+Insert is permanently reserved for the menu. Any registered module can otherwise be assigned a toggle key from the **Hotkeys** page or console:
 
 ```text
 kirkware_bind <module_id> <key name>
@@ -171,6 +207,7 @@ Examples:
 kirkware_bind misc_freecam f6
 kirkware_bind misc_thirdperson mouse3
 kirkware_bind misc_zoom z
+kirkware_bind misc_pathfinder_set_target p
 ```
 
 ## Reset
@@ -185,8 +222,8 @@ restores every registered module to its default state. The Reset Defaults button
 
 This implementation deliberately stays on Garry's Mod's supported client Lua/addon interfaces. A game/server configuration that disables clientside Lua/addons can prevent this addon from loading. The Linux port does not attempt to bypass that policy or an anti-cheat system.
 
-The migration intentionally excludes server crashers, malformed/net-channel attacks, fake latency/packet choking, tickbase/fake-command abuse, spread-seed manipulation, Windows process injection/manual mapping, remote/process hooks, trace cleaning, and stealth/evasion code.
+The migration intentionally excludes server crashers, malformed/net-channel attacks, fake latency/packet choking, tickbase/fake-command abuse, spread-seed manipulation, Windows process injection/manual mapping, remote/process hooks, trace cleaning, screengrab bypasses and stealth/evasion code. Engine settings marked cheat-protected, such as direct aspect-ratio overrides, are also not bypassed.
 
 ## Architecture
 
-The addon is loaded normally from Garry's Mod's `addons` directory and uses supported client hooks such as `HUDPaint`, `PreDrawHalos`, `CalcView`, `CreateMove`, `Think`, viewmodel drawing hooks, and normal game events. The protected Windows runtime remains unchanged.
+The addon is loaded normally from Garry's Mod's `addons` directory and uses supported client hooks such as `HUDPaint`, `PreDrawHalos`, `CalcView`, `CreateMove`, `Think`, viewmodel drawing hooks, normal game events and the existing map navmesh APIs. The protected Windows runtime remains unchanged.
