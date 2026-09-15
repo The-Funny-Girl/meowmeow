@@ -22,6 +22,12 @@ local combatModules = {
         category = "aim",
         default = true,
     },
+    legit_hitscan = {
+        name = "legit hitscan",
+        description = "choose the best visible head/chest/pelvis point",
+        category = "aim",
+        default = false,
+    },
     legit_triggerbot = {
         name = "triggerbot",
         description = "fire when the crosshair is over a valid player",
@@ -57,6 +63,12 @@ local combatModules = {
         description = "show the rage aim field of view",
         category = "aim",
         default = false,
+    },
+    rage_hitscan = {
+        name = "rage hitscan",
+        description = "choose the best visible head/chest/pelvis point",
+        category = "aim",
+        default = true,
     },
     rage_norecoil = {
         name = "rage recoil compensation",
@@ -132,22 +144,31 @@ local legitRequireAttack = CreateClientConVar(
     "Only run legit aim while primary attack is held", 0, 1)
 
 local currentTarget = nil
+local currentTargetPosition = nil
 local lockedRageTarget = nil
 local nextTriggerTime = 0
 
-local function targetPosition(playerEntity)
-    local bone = playerEntity:LookupBone("ValveBiped.Bip01_Head1")
-    if bone ~= nil then
-        local matrix = playerEntity:GetBoneMatrix(bone)
-        if matrix then
-            return matrix:GetTranslation()
-        end
-        local position = playerEntity:GetBonePosition(bone)
-        if position then
-            return position
-        end
+local aimBones = {
+    "ValveBiped.Bip01_Head1",
+    "ValveBiped.Bip01_Spine2",
+    "ValveBiped.Bip01_Pelvis",
+}
+
+local function bonePosition(playerEntity, boneName)
+    local bone = playerEntity:LookupBone(boneName)
+    if bone == nil then
+        return nil
     end
-    return playerEntity:EyePos()
+    local matrix = playerEntity:GetBoneMatrix(bone)
+    if matrix then
+        return matrix:GetTranslation()
+    end
+    local position = playerEntity:GetBonePosition(bone)
+    return position
+end
+
+local function targetPosition(playerEntity)
+    return bonePosition(playerEntity, aimBones[1]) or playerEntity:EyePos()
 end
 
 local function angularDistance(fromAngle, toAngle)
@@ -166,11 +187,21 @@ local function visibleTo(localPlayer, target, position)
     return trace.Fraction >= 0.995 or trace.Entity == target
 end
 
-local function targetAllowed(localPlayer, target, requireVisible, maxDistance)
+local function playerRuleWeight(target)
+    if KW.PlayerTargetWeight then
+        return KW.PlayerTargetWeight(target)
+    end
+    return 0
+end
+
+local function basicTargetAllowed(localPlayer, target, maxDistance)
     if not IsValid(target) or target == localPlayer or not target:IsPlayer() then
         return false
     end
     if not target:Alive() or target:GetObserverMode() ~= OBS_MODE_NONE then
+        return false
+    end
+    if playerRuleWeight(target) == nil then
         return false
     end
     if aimTeammates:GetBool() == false and localPlayer:Team() == target:Team() then
@@ -179,30 +210,60 @@ local function targetAllowed(localPlayer, target, requireVisible, maxDistance)
     if localPlayer:GetShootPos():DistToSqr(target:GetPos()) > maxDistance * maxDistance then
         return false
     end
-
-    local position = targetPosition(target)
-    if requireVisible and not visibleTo(localPlayer, target, position) then
-        return false
-    end
     return true
 end
 
-local function bestTarget(localPlayer, viewAngles, maximumFov, maxDistance,
-                          requireVisible)
-    local best = nil
+local function bestPointForTarget(localPlayer, target, viewAngles, maximumFov,
+                                  requireVisible, useHitscan)
+    local shootPosition = localPlayer:GetShootPos()
+    local positions = {}
+    if useHitscan then
+        for _, boneName in ipairs(aimBones) do
+            local position = bonePosition(target, boneName)
+            if position then
+                positions[#positions + 1] = position
+            end
+        end
+    else
+        positions[1] = targetPosition(target)
+    end
+
     local bestPosition = nil
     local bestFov = maximumFov
-    local shootPosition = localPlayer:GetShootPos()
-
-    for _, candidate in ipairs(player.GetAll()) do
-        if targetAllowed(localPlayer, candidate, requireVisible, maxDistance) then
-            local position = targetPosition(candidate)
+    for _, position in ipairs(positions) do
+        if not requireVisible or visibleTo(localPlayer, target, position) then
             local desired = (position - shootPosition):Angle()
             local delta = angularDistance(viewAngles, desired)
             if delta <= bestFov then
-                best = candidate
                 bestPosition = position
                 bestFov = delta
+            end
+        end
+    end
+    return bestPosition, bestFov
+end
+
+local function bestTarget(localPlayer, viewAngles, maximumFov, maxDistance,
+                          requireVisible, useHitscan)
+    local best = nil
+    local bestPosition = nil
+    local bestScore = math.huge
+    local bestFov = maximumFov
+
+    for _, candidate in ipairs(player.GetAll()) do
+        if basicTargetAllowed(localPlayer, candidate, maxDistance) then
+            local position, delta = bestPointForTarget(
+                localPlayer, candidate, viewAngles, maximumFov,
+                requireVisible, useHitscan)
+            if position then
+                local weight = playerRuleWeight(candidate) or 0
+                local score = delta + weight
+                if score < bestScore then
+                    best = candidate
+                    bestPosition = position
+                    bestFov = delta
+                    bestScore = score
+                end
             end
         end
     end
@@ -210,7 +271,7 @@ local function bestTarget(localPlayer, viewAngles, maximumFov, maxDistance,
     return best, bestPosition, bestFov
 end
 
-local function compensatedAim(localPlayer, viewAngles, desired, compensate)
+local function compensatedAim(localPlayer, desired, compensate)
     local output = Angle(desired.p, desired.y, 0)
     if compensate then
         local punch = localPlayer:GetViewPunchAngles()
@@ -230,18 +291,20 @@ local function smoothAim(current, desired, smoothing)
 end
 
 local function validLockedRageTarget(localPlayer, viewAngles)
-    if not enabled("rage_target_lock") then
-        return nil, nil
-    end
-    if not targetAllowed(localPlayer, lockedRageTarget,
-                         enabled("rage_visible_check"),
-                         rageMaxDistance:GetFloat()) then
+    if not enabled("rage_target_lock") or
+       not basicTargetAllowed(localPlayer, lockedRageTarget,
+                              rageMaxDistance:GetFloat()) then
         return nil, nil
     end
 
-    local position = targetPosition(lockedRageTarget)
-    local desired = (position - localPlayer:GetShootPos()):Angle()
-    if angularDistance(viewAngles, desired) > rageFov:GetFloat() then
+    local position = bestPointForTarget(
+        localPlayer,
+        lockedRageTarget,
+        viewAngles,
+        rageFov:GetFloat(),
+        enabled("rage_visible_check"),
+        enabled("rage_hitscan"))
+    if not position then
         return nil, nil
     end
     return lockedRageTarget, position
@@ -251,11 +314,13 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
     local localPlayer = LocalPlayer()
     if not IsValid(localPlayer) or not localPlayer:Alive() then
         currentTarget = nil
+        currentTargetPosition = nil
         lockedRageTarget = nil
         return
     end
     if IsValid(KW.Frame) and KW.Frame:IsVisible() then
         currentTarget = nil
+        currentTargetPosition = nil
         return
     end
 
@@ -271,14 +336,14 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
                 viewAngles,
                 rageFov:GetFloat(),
                 rageMaxDistance:GetFloat(),
-                enabled("rage_visible_check"))
+                enabled("rage_visible_check"),
+                enabled("rage_hitscan"))
         end
 
         if IsValid(target) and position then
             lockedRageTarget = target
             local desired = compensatedAim(
                 localPlayer,
-                viewAngles,
                 (position - localPlayer:GetShootPos()):Angle(),
                 enabled("rage_norecoil"))
             command:SetViewAngles(desired)
@@ -295,12 +360,12 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
             viewAngles,
             legitFov:GetFloat(),
             legitMaxDistance:GetFloat(),
-            enabled("legit_visible_check"))
+            enabled("legit_visible_check"),
+            enabled("legit_hitscan"))
 
         if IsValid(target) and position then
             local desired = compensatedAim(
                 localPlayer,
-                viewAngles,
                 (position - localPlayer:GetShootPos()):Angle(),
                 enabled("legit_recoil"))
             command:SetViewAngles(
@@ -312,6 +377,7 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
     end
 
     currentTarget = IsValid(target) and target or nil
+    currentTargetPosition = position
 
     if enabled("legit_triggerbot") and CurTime() >= nextTriggerTime then
         local direction = command:GetViewAngles():Forward()
@@ -323,8 +389,7 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
         })
         local hit = trace.Entity
         if IsValid(hit) and hit:IsPlayer() and hit:Alive() and
-           targetAllowed(localPlayer, hit, false,
-                         legitMaxDistance:GetFloat()) then
+           basicTargetAllowed(localPlayer, hit, legitMaxDistance:GetFloat()) then
             command:AddKey(IN_ATTACK)
             nextTriggerTime = CurTime() + triggerDelay:GetFloat()
         end
@@ -368,7 +433,8 @@ hook.Add("HUDPaint", "KirkwareLinux.CombatVisuals", function()
     end
 
     if enabled("esp_target_line") and IsValid(currentTarget) then
-        local position = targetPosition(currentTarget):ToScreen()
+        local worldPosition = currentTargetPosition or targetPosition(currentTarget)
+        local position = worldPosition:ToScreen()
         if position.visible ~= false then
             surface.SetDrawColor(255, 105, 105, 220)
             surface.DrawLine(centerX, centerY, position.x, position.y)
