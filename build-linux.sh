@@ -19,12 +19,118 @@ PACKAGE=0
 RUN_UI=0
 JOBS="${KIRKWARE_JOBS:-}"
 
+fail() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+have_color() {
+    [[ -t 1 && "${TERM:-dumb}" != "dumb" ]]
+}
+
+if have_color; then
+    UI_BOLD=$'\033[1m'
+    UI_DIM=$'\033[2m'
+    UI_ACCENT=$'\033[36m'
+    UI_GOOD=$'\033[32m'
+    UI_RESET=$'\033[0m'
+else
+    UI_BOLD=""
+    UI_DIM=""
+    UI_ACCENT=""
+    UI_GOOD=""
+    UI_RESET=""
+fi
+
+ui_banner() {
+    if have_color; then
+        printf '\033[2J\033[H'
+    fi
+    printf '%s%sKIRKWARE LINUX BUILDER%s\n' "$UI_BOLD" "$UI_ACCENT" "$UI_RESET"
+    printf '%sBuild, test, install and launch%s\n' "$UI_DIM" "$UI_RESET"
+    printf '%s\n' '----------------------------------------'
+}
+
+run_menu_command() {
+    printf '\n'
+    if env KIRKWARE_NONINTERACTIVE=1 "$@"; then
+        printf '\n%sCompleted successfully.%s\n' "$UI_GOOD" "$UI_RESET"
+    else
+        local rc=$?
+        printf '\nCommand failed with exit code %s.\n' "$rc" >&2
+    fi
+    printf 'Press Enter to return to the menu...'
+    read -r _ || true
+}
+
+interactive_menu() {
+    while true; do
+        ui_banner
+        cat <<'EOF'
+  1. Release build + tests
+  2. Clean Release build + tests
+  3. Build + install GMod addon
+  4. Build + install addon + launch desktop UI
+  5. Debug build + tests
+  6. Sanitizer build + tests
+  7. Build + create packages
+  8. Install dependencies + build
+  9. Cooperative .so load harness
+  0. Exit
+EOF
+        printf '\nSelect: '
+        read -r choice || return 0
+
+        case "$choice" in
+            1)
+                run_menu_command "$ROOT_DIR/build-linux.sh"
+                ;;
+            2)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --clean
+                ;;
+            3)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --install-addon
+                ;;
+            4)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --install-addon --run
+                ;;
+            5)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --debug
+                ;;
+            6)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --sanitize
+                ;;
+            7)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --package
+                ;;
+            8)
+                run_menu_command "$ROOT_DIR/build-linux.sh" --install-deps
+                ;;
+            9)
+                [[ -x "$ROOT_DIR/build-load-harness.sh" ]] || \
+                    fail "build-load-harness.sh is missing or not executable"
+                "$ROOT_DIR/build-load-harness.sh"
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                printf 'Invalid selection. Press Enter...'
+                read -r _ || true
+                ;;
+        esac
+    done
+}
+
 usage() {
     cat <<'EOF'
 Usage: ./build-linux.sh [options]
 
+Run with no arguments in an interactive terminal to open the builder menu.
+Non-interactive no-argument use keeps the original Release build + test behavior.
+
 Quick examples:
-  ./build-linux.sh                         Build Release + run tests
+  ./build-linux.sh                         Interactive menu in a terminal
   ./build-linux.sh --run                   Build/test, then launch the Linux UI
   ./build-linux.sh --install-addon         Build/test and install the in-game menu
   ./build-linux.sh --install-addon --run   Install the in-game menu, then launch UI
@@ -49,11 +155,6 @@ Options:
 EOF
 }
 
-fail() {
-    printf 'error: %s\n' "$*" >&2
-    exit 1
-}
-
 install_deps() {
     command -v apt-get >/dev/null 2>&1 || \
         fail "--install-deps currently supports apt-based systems only"
@@ -76,6 +177,11 @@ install_deps() {
         libgl1-mesa-dev \
         libfreetype6-dev
 }
+
+if (( $# == 0 )) && [[ -t 0 && -t 1 ]] && [[ "${KIRKWARE_NONINTERACTIVE:-0}" != "1" ]]; then
+    interactive_menu
+    exit 0
+fi
 
 while (( $# > 0 )); do
     case "$1" in
