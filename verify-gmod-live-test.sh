@@ -97,7 +97,7 @@ printf '\nRecent Kirkware console lines:\n'
 grep -F -- '[kirkware linux]' "$LOG" | tail -n 30 || true
 
 printf '\nPotential Lua errors mentioning Kirkware:\n'
-if grep -iE 'kirkware.*(error|failed)|(?:error|failed).*kirkware' "$LOG" | tail -n 20; then
+if grep -iE 'kirkware.*(error|failed)|(error|failed).*kirkware' "$LOG" | tail -n 20; then
     true
 else
     printf '  none found\n'
