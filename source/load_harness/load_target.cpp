@@ -215,7 +215,8 @@ int main(int argc, char** argv) {
 
     const pid_t pid = ::getpid();
     const std::string socket_path = socket_path_for(pid);
-    if (socket_path.size() >= sizeof(sockaddr_un::sun_path)) {
+    sockaddr_un address {};
+    if (socket_path.size() >= sizeof(address.sun_path)) {
         std::cerr << "error: generated Unix socket path is too long\n";
         return 1;
     }
@@ -228,7 +229,6 @@ int main(int argc, char** argv) {
 
     ::unlink(socket_path.c_str());
 
-    sockaddr_un address {};
     address.sun_family = AF_UNIX;
     std::snprintf(address.sun_path, sizeof(address.sun_path), "%s", socket_path.c_str());
 
