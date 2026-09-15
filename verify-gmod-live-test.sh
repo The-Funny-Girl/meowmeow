@@ -43,7 +43,9 @@ find_game_dir() {
     local candidates=(
         "$HOME/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/.steam/steam/steamapps/common/GarrysMod"
+        "$HOME/.steam/debian-installation/steamapps/common/GarrysMod"
         "$HOME/.steam/root/steamapps/common/GarrysMod"
+        "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod"
     )
     for candidate in "${candidates[@]}"; do
@@ -105,6 +107,7 @@ else
 fi
 
 printf '\nSummary: %d passed, %d missing\n' "$passed" "$failed"
+printf 'Note: this verifies module initialization only; it does not prove gameplay behavior such as target acquisition or ESP drawing.\n'
 
 if (( failed == 0 )); then
     printf 'Kirkware initialized in the live GMod client.\n'

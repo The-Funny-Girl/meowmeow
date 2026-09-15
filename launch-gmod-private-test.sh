@@ -8,6 +8,7 @@ MAP_NAME="gm_construct"
 KEEP_WORKSHOP=0
 INSTALL_ADDON=1
 DRY_RUN=0
+ALLOW_RUNNING=0
 STEAM_BIN_OVERRIDE="${STEAM_BIN:-}"
 
 fail() {
@@ -34,6 +35,7 @@ Options:
   --map NAME           Local-test map (default: gm_construct)
   --keep-workshop      Do not pass -noworkshop
   --no-install         Do not reinstall the local kirkware_linux addon first
+  --allow-running      Do not refuse launch when an existing GMod process is detected
   --game-dir PATH      Garry's Mod directory containing garrysmod/
   --steam-bin PATH     Steam executable (or set STEAM_BIN)
   --dry-run            Print the resolved launch command without starting GMod
@@ -66,6 +68,9 @@ while (( $# > 0 )); do
         --no-install)
             INSTALL_ADDON=0
             ;;
+        --allow-running)
+            ALLOW_RUNNING=1
+            ;;
         --game-dir)
             shift
             (( $# > 0 )) || fail "--game-dir requires a path"
@@ -95,7 +100,9 @@ find_game_dir() {
     local candidates=(
         "$HOME/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/.steam/steam/steamapps/common/GarrysMod"
+        "$HOME/.steam/debian-installation/steamapps/common/GarrysMod"
         "$HOME/.steam/root/steamapps/common/GarrysMod"
+        "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod"
     )
     for candidate in "${candidates[@]}"; do
@@ -107,6 +114,16 @@ find_game_dir() {
     return 1
 }
 
+gmod_running() {
+    command -v pgrep >/dev/null 2>&1 || return 1
+    local uid
+    uid="$(id -u)"
+
+    pgrep -u "$uid" -x gmod >/dev/null 2>&1 ||
+        pgrep -u "$uid" -x gmod_linux64 >/dev/null 2>&1 ||
+        pgrep -u "$uid" -f '/GarrysMod/.*(gmod|hl2)' >/dev/null 2>&1
+}
+
 if [[ -z "$GAME_DIR" ]]; then
     GAME_DIR="$(find_game_dir || true)"
 fi
@@ -116,6 +133,10 @@ GAME_DIR="$(cd -- "$GAME_DIR" 2>/dev/null && pwd)" || fail \
     "Garry's Mod directory does not exist: $GAME_DIR"
 [[ -d "$GAME_DIR/garrysmod" ]] || fail \
     "expected garrysmod/ inside: $GAME_DIR"
+
+if (( ! ALLOW_RUNNING )) && gmod_running; then
+    fail "Garry's Mod already appears to be running. Close it before the isolated live test so addon installation and -condebug log rotation belong to one clean session. Use --allow-running only when you intentionally accept that ambiguity."
+fi
 
 if (( INSTALL_ADDON )); then
     [[ -x "$ROOT_DIR/install-gmod-addon.sh" ]] || \
