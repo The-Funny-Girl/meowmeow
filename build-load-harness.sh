@@ -10,6 +10,8 @@ CLEAN=0
 RUN_TESTS=1
 ACTION="build"
 JOBS="${KIRKWARE_JOBS:-}"
+MANAGED_PID_FILE="/tmp/kirkware-load-target-$(id -u)-managed.pid"
+MANAGED_LOG_FILE="/tmp/kirkware-load-target-$(id -u)-managed.log"
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -52,8 +54,8 @@ Options:
   --sanitize           Debug build with ASan/UBSan
   --no-tests           Skip CTest
   --target             Build, then run the cooperative target
-  --client             Build, then open the loader terminal UI
-  --demo               Build, start a target, then open the loader UI
+  --client             Build, ensure one managed target is running, then open loader UI
+  --demo               Build, start a temporary target, then open loader UI
   --self-test          Build and run the direct dlopen/dlclose smoke test
   --build-dir PATH     Override build directory
   --jobs N             Parallel build jobs
@@ -105,7 +107,7 @@ build_harness() {
         printf '%s[3/3]%s Run tests\n' "$ACCENT" "$RESET"
         ctest --test-dir "$BUILD_DIR" --output-on-failure
     else
-        printf '%s[3/3]%s Tests skipped\n' "$DIM" "$RESET"
+        printf '%s[3/3]%s Tests skipped for run session\n' "$DIM" "$RESET"
     fi
 
     printf '\n%sBuild ready%s\n' "$GOOD" "$RESET"
@@ -114,12 +116,66 @@ build_harness() {
     printf '  module: %s/libkirkware_load_test.so\n' "$BUILD_DIR"
 }
 
+managed_target_pid() {
+    [[ -f "$MANAGED_PID_FILE" ]] || return 1
+
+    local pid
+    read -r pid < "$MANAGED_PID_FILE" || return 1
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+
+    local socket_path="/tmp/kirkware-load-target-$(id -u)-${pid}.sock"
+    if kill -0 "$pid" 2>/dev/null && [[ -S "$socket_path" ]]; then
+        printf '%s\n' "$pid"
+        return 0
+    fi
+
+    rm -f -- "$MANAGED_PID_FILE" "$socket_path"
+    return 1
+}
+
+start_managed_target() {
+    local existing_pid
+    if existing_pid="$(managed_target_pid)"; then
+        printf '%sManaged target already running%s (PID %s)\n' \
+            "$GOOD" "$RESET" "$existing_pid"
+        return 0
+    fi
+
+    printf 'Starting persistent controlled target...\n'
+    nohup "$BUILD_DIR/kirkware-load-target" >"$MANAGED_LOG_FILE" 2>&1 &
+    local target_pid=$!
+    printf '%s\n' "$target_pid" > "$MANAGED_PID_FILE"
+
+    local socket_path="/tmp/kirkware-load-target-$(id -u)-${target_pid}.sock"
+    for _ in {1..80}; do
+        if ! kill -0 "$target_pid" 2>/dev/null; then
+            printf 'Managed target exited during startup.\n' >&2
+            [[ -f "$MANAGED_LOG_FILE" ]] && cat "$MANAGED_LOG_FILE" >&2
+            rm -f -- "$MANAGED_PID_FILE" "$socket_path"
+            return 1
+        fi
+        if [[ -S "$socket_path" ]]; then
+            printf '%sManaged target ready%s\n' "$GOOD" "$RESET"
+            printf '  PID:    %s\n' "$target_pid"
+            printf '  Socket: %s\n' "$socket_path"
+            printf '  Log:    %s\n' "$MANAGED_LOG_FILE"
+            return 0
+        fi
+        sleep 0.05
+    done
+
+    kill "$target_pid" 2>/dev/null || true
+    rm -f -- "$MANAGED_PID_FILE" "$socket_path"
+    fail "managed target socket did not appear"
+}
+
 run_target() {
     exec "$BUILD_DIR/kirkware-load-target"
 }
 
 run_client() {
-    exec "$BUILD_DIR/kirkware-load-client"
+    start_managed_target
+    "$BUILD_DIR/kirkware-load-client"
 }
 
 run_self_test() {
@@ -128,7 +184,7 @@ run_self_test() {
 
 run_demo() {
     banner
-    printf 'Starting controlled target...\n'
+    printf 'Starting temporary controlled target...\n'
     "$BUILD_DIR/kirkware-load-target" &
     local target_pid=$!
     local socket_path="/tmp/kirkware-load-target-$(id -u)-${target_pid}.sock"
@@ -148,7 +204,7 @@ run_demo() {
     done
     [[ -S "$socket_path" ]] || fail "target socket did not appear"
 
-    printf '\nTarget PID %s is ready. Opening loader UI...\n' "$target_pid"
+    printf '\nTemporary target PID %s is ready. Opening loader UI...\n' "$target_pid"
     "$BUILD_DIR/kirkware-load-client"
 
     cleanup_demo
@@ -158,12 +214,20 @@ run_demo() {
 interactive_menu() {
     while true; do
         banner
+        local managed_status="not running"
+        local running_pid
+        if running_pid="$(managed_target_pid)"; then
+            managed_status="PID $running_pid"
+        fi
+
         cat <<EOF
+  Managed target: $managed_status
+
   1. Build + test
   2. Clean build + test
-  3. Start controlled target
-  4. Open loader UI
-  5. Full demo session
+  3. Start foreground controlled target
+  4. Open loader UI (persistent managed target)
+  5. Full temporary demo session
   6. Sanitizer build + test
   7. Direct .so self-test
   0. Exit
@@ -174,37 +238,44 @@ EOF
         case "$choice" in
             1)
                 CLEAN=0
+                RUN_TESTS=1
                 BUILD_TYPE="Release"
                 SANITIZERS="OFF"
                 build_harness
                 ;;
             2)
                 CLEAN=1
+                RUN_TESTS=1
                 BUILD_TYPE="Release"
                 SANITIZERS="OFF"
                 build_harness
                 CLEAN=0
                 ;;
             3)
+                RUN_TESTS=0
                 build_harness
                 run_target
                 ;;
             4)
+                RUN_TESTS=0
                 build_harness
                 run_client
                 ;;
             5)
+                RUN_TESTS=0
                 build_harness
                 run_demo
                 ;;
             6)
                 CLEAN=1
+                RUN_TESTS=1
                 BUILD_TYPE="Debug"
                 SANITIZERS="ON"
                 build_harness
                 CLEAN=0
                 ;;
             7)
+                RUN_TESTS=0
                 build_harness
                 run_self_test
                 ;;
@@ -243,15 +314,19 @@ while (( $# > 0 )); do
             ;;
         --target)
             ACTION="target"
+            RUN_TESTS=0
             ;;
         --client)
             ACTION="client"
+            RUN_TESTS=0
             ;;
         --demo)
             ACTION="demo"
+            RUN_TESTS=0
             ;;
         --self-test)
             ACTION="self-test"
+            RUN_TESTS=0
             ;;
         --build-dir)
             shift
