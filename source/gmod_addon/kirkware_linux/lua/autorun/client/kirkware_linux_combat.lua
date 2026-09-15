@@ -34,6 +34,18 @@ local combatModules = {
         category = "aim",
         default = false,
     },
+    legit_triggerbot_ammo = {
+        name = "triggerbot ammo check",
+        description = "do not trigger an empty magazine",
+        category = "aim",
+        default = true,
+    },
+    legit_triggerbot_canshoot = {
+        name = "triggerbot fire-ready check",
+        description = "wait until the active weapon can primary fire",
+        category = "aim",
+        default = true,
+    },
     legit_recoil = {
         name = "legit recoil compensation",
         description = "compensate view punch while legit aim is active",
@@ -57,6 +69,24 @@ local combatModules = {
         description = "fire automatically while rage aim has a target",
         category = "aim",
         default = false,
+    },
+    rage_autofire_ammo = {
+        name = "rage ammo check",
+        description = "do not autofire an empty magazine",
+        category = "aim",
+        default = true,
+    },
+    rage_can_fire = {
+        name = "rage fire-ready check",
+        description = "wait until the active weapon can primary fire",
+        category = "aim",
+        default = true,
+    },
+    rage_fix_movement = {
+        name = "rage movement correction",
+        description = "preserve intended movement when aim changes view angle",
+        category = "aim",
+        default = true,
     },
     rage_fov_circle = {
         name = "rage fov circle",
@@ -127,6 +157,9 @@ local legitSmoothing = CreateClientConVar(
 local legitMaxDistance = CreateClientConVar(
     "kirkware_legit_max_distance", "10000", true, false,
     "Maximum legit aim target distance", 100, 50000)
+local legitSort = CreateClientConVar(
+    "kirkware_legit_sort", "0", true, false,
+    "Legit target sort: 0=fov, 1=distance, 2=health", 0, 2)
 local triggerDelay = CreateClientConVar(
     "kirkware_trigger_delay", "0.03", true, false,
     "Triggerbot delay in seconds", 0, 1)
@@ -136,6 +169,9 @@ local rageFov = CreateClientConVar(
 local rageMaxDistance = CreateClientConVar(
     "kirkware_rage_max_distance", "20000", true, false,
     "Maximum rage aim target distance", 100, 50000)
+local rageSort = CreateClientConVar(
+    "kirkware_rage_sort", "0", true, false,
+    "Rage target sort: 0=fov, 1=distance, 2=health", 0, 2)
 local aimTeammates = CreateClientConVar(
     "kirkware_aim_teammates", "0", true, false,
     "Allow aim modules to target teammates", 0, 1)
@@ -163,8 +199,7 @@ local function bonePosition(playerEntity, boneName)
     if matrix then
         return matrix:GetTranslation()
     end
-    local position = playerEntity:GetBonePosition(bone)
-    return position
+    return playerEntity:GetBonePosition(bone)
 end
 
 local function targetPosition(playerEntity)
@@ -243,8 +278,23 @@ local function bestPointForTarget(localPlayer, target, viewAngles, maximumFov,
     return bestPosition, bestFov
 end
 
+local function targetScore(localPlayer, target, fovDelta, sortMode)
+    local score = fovDelta
+    if sortMode == 1 then
+        score = localPlayer:GetShootPos():Distance(target:GetPos())
+    elseif sortMode == 2 then
+        score = math.max(0, target:Health())
+    end
+
+    local ruleWeight = playerRuleWeight(target) or 0
+    if ruleWeight < 0 then
+        score = score - 1000000000
+    end
+    return score
+end
+
 local function bestTarget(localPlayer, viewAngles, maximumFov, maxDistance,
-                          requireVisible, useHitscan)
+                          requireVisible, useHitscan, sortMode)
     local best = nil
     local bestPosition = nil
     local bestScore = math.huge
@@ -256,8 +306,7 @@ local function bestTarget(localPlayer, viewAngles, maximumFov, maxDistance,
                 localPlayer, candidate, viewAngles, maximumFov,
                 requireVisible, useHitscan)
             if position then
-                local weight = playerRuleWeight(candidate) or 0
-                local score = delta + weight
+                local score = targetScore(localPlayer, candidate, delta, sortMode)
                 if score < bestScore then
                     best = candidate
                     bestPosition = position
@@ -288,6 +337,47 @@ local function smoothAim(current, desired, smoothing)
     local pitch = current.p + math.AngleDifference(desired.p, current.p) * factor
     local yaw = current.y + math.AngleDifference(desired.y, current.y) * factor
     return Angle(math.Clamp(pitch, -89, 89), math.NormalizeAngle(yaw), 0)
+end
+
+local function weaponReady(localPlayer, requireAmmo, requireCooldown)
+    local weapon = localPlayer:GetActiveWeapon()
+    if not IsValid(weapon) then
+        return false
+    end
+
+    if requireAmmo then
+        local maximum = weapon:GetMaxClip1()
+        if maximum and maximum > 0 and weapon:Clip1() <= 0 then
+            return false
+        end
+    end
+
+    if requireCooldown and weapon:GetNextPrimaryFire() > CurTime() then
+        return false
+    end
+    return true
+end
+
+local function correctMovement(command, oldAngles, newAngles)
+    local oldForward = oldAngles:Forward()
+    local oldRight = oldAngles:Right()
+    oldForward.z = 0
+    oldRight.z = 0
+    oldForward:Normalize()
+    oldRight:Normalize()
+
+    local worldMove = oldForward * command:GetForwardMove() +
+                      oldRight * command:GetSideMove()
+
+    local newForward = newAngles:Forward()
+    local newRight = newAngles:Right()
+    newForward.z = 0
+    newRight.z = 0
+    newForward:Normalize()
+    newRight:Normalize()
+
+    command:SetForwardMove(math.Clamp(worldMove:Dot(newForward), -10000, 10000))
+    command:SetSideMove(math.Clamp(worldMove:Dot(newRight), -10000, 10000))
 end
 
 local function validLockedRageTarget(localPlayer, viewAngles)
@@ -337,7 +427,8 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
                 rageFov:GetFloat(),
                 rageMaxDistance:GetFloat(),
                 enabled("rage_visible_check"),
-                enabled("rage_hitscan"))
+                enabled("rage_hitscan"),
+                math.floor(rageSort:GetFloat()))
         end
 
         if IsValid(target) and position then
@@ -346,8 +437,14 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
                 localPlayer,
                 (position - localPlayer:GetShootPos()):Angle(),
                 enabled("rage_norecoil"))
+            if enabled("rage_fix_movement") then
+                correctMovement(command, viewAngles, desired)
+            end
             command:SetViewAngles(desired)
-            if enabled("rage_autofire") then
+            if enabled("rage_autofire") and
+               weaponReady(localPlayer,
+                           enabled("rage_autofire_ammo"),
+                           enabled("rage_can_fire")) then
                 command:AddKey(IN_ATTACK)
             end
         else
@@ -361,7 +458,8 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
             legitFov:GetFloat(),
             legitMaxDistance:GetFloat(),
             enabled("legit_visible_check"),
-            enabled("legit_hitscan"))
+            enabled("legit_hitscan"),
+            math.floor(legitSort:GetFloat()))
 
         if IsValid(target) and position then
             local desired = compensatedAim(
@@ -389,7 +487,10 @@ hook.Add("CreateMove", "KirkwareLinux.CombatModules", function(command)
         })
         local hit = trace.Entity
         if IsValid(hit) and hit:IsPlayer() and hit:Alive() and
-           basicTargetAllowed(localPlayer, hit, legitMaxDistance:GetFloat()) then
+           basicTargetAllowed(localPlayer, hit, legitMaxDistance:GetFloat()) and
+           weaponReady(localPlayer,
+                       enabled("legit_triggerbot_ammo"),
+                       enabled("legit_triggerbot_canshoot")) then
             command:AddKey(IN_ATTACK)
             nextTriggerTime = CurTime() + triggerDelay:GetFloat()
         end
