@@ -1,0 +1,21 @@
+name: Desktop control UI
+
+on:
+  push:
+    branches: [linux-ui-feature-controls]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compile Python UI
+        run: python3 -m py_compile kirkware-control-ui.py
+      - name: Profile round-trip self-test
+        run: python3 kirkware-control-ui.py --self-test
