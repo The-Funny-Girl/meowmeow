@@ -26,19 +26,21 @@ Use another map with:
 ./launch-gmod-private-test.sh --map gm_flatgrass
 ```
 
-## Pre-join menu mode
+This is the mode used to verify Aim, ESP/visuals, Misc and tuning behavior in the actual client.
 
-To initialize the local client/addon before connecting anywhere:
+## Main-menu isolation mode
 
 ```bash
 ./launch-gmod-private-test.sh --menu
 ```
 
-This starts GMod without automatically joining or creating a server. Workshop content is still disabled by default for isolation. This is the supported pre-join path for checking initialization order and addon conflicts.
+This starts GMod without automatically joining or creating a server and still disables Workshop content by default. It is useful for checking clean process startup and narrowing Workshop conflicts.
+
+The main menu uses a different Lua state from an in-game client session, so this mode does **not** prove that the client addon has initialized and it does not provide a supported way to keep client-Lua state alive across a later connection. Use the private/local map mode for live feature verification.
 
 ## Re-enable Workshop content
 
-After the isolated test works:
+After the isolated private test works:
 
 ```bash
 ./launch-gmod-private-test.sh --keep-workshop
@@ -48,7 +50,7 @@ If this fails while the default isolated launch works, a Workshop addon conflict
 
 ## Verify the running client
 
-After the map/menu loads:
+After the private/local map loads:
 
 ```bash
 ./verify-gmod-live-test.sh
@@ -78,7 +80,7 @@ Leave **Live export** enabled. The desktop profile bridge watches `garrysmod/dat
 
 ```text
 --local              start the private listen-server test (default)
---menu               stop at the main menu; do not join a server
+--menu               stop at the main menu; no live client-addon verification
 --map NAME           choose the local test map
 --keep-workshop      allow Workshop addons during the test
 --no-install         do not reinstall the folder addon
