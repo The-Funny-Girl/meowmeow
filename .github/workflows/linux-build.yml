@@ -2,7 +2,7 @@ name: Linux build
 
 on:
   push:
-    branches: [main, linux-port, linux-ui-port]
+    branches: [main, linux-port, linux-ui-port, linux-ingame-menu]
   pull_request:
     branches: [main]
 
@@ -23,11 +23,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Linux build helper
+      - name: Validate Linux helpers
         run: |
           test -x build-linux.sh
+          test -x install-gmod-addon.sh
           bash -n build-linux.sh
+          bash -n install-gmod-addon.sh
           ./build-linux.sh --help >/dev/null
+          ./install-gmod-addon.sh --help >/dev/null
+
+      - name: Test Garry's Mod addon installer
+        run: |
+          set -euo pipefail
+          fake_game="$RUNNER_TEMP/GarrysMod"
+          mkdir -p "$fake_game/garrysmod/addons"
+          ./install-gmod-addon.sh --game-dir "$fake_game"
+          test -f "$fake_game/garrysmod/addons/kirkware_linux/addon.json"
+          test -f "$fake_game/garrysmod/addons/kirkware_linux/lua/autorun/client/kirkware_linux.lua"
+          ./install-gmod-addon.sh --game-dir "$fake_game" --uninstall
+          test ! -e "$fake_game/garrysmod/addons/kirkware_linux"
 
       - name: Verify preserved Windows runtime is unchanged
         shell: bash
