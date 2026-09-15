@@ -12,24 +12,28 @@ local profilePath = "kirkware_linux/desktop_profile.conf"
 local timerName = "KirkwareLinux.DesktopProfile"
 local lastRaw = nil
 
+-- Keep the desktop profile constrained to convars that already exist in the
+-- supported addon. Imported/hand-edited profiles are validated independently
+-- of the desktop UI so an invalid string cannot accidentally force a numeric
+-- convar to an unexpected value.
 local allowedConVars = {
-    kirkware_legit_fov = true,
-    kirkware_legit_smoothing = true,
-    kirkware_legit_max_distance = true,
-    kirkware_legit_sort = true,
-    kirkware_trigger_delay = true,
-    kirkware_rage_fov = true,
-    kirkware_rage_max_distance = true,
-    kirkware_rage_sort = true,
-    kirkware_aim_teammates = true,
-    kirkware_legit_require_attack = true,
-    kirkware_fov = true,
-    kirkware_zoom_fov = true,
-    kirkware_thirdperson_distance = true,
-    kirkware_entity_distance = true,
-    kirkware_freecam_speed = true,
-    kirkware_freecam_boost = true,
-    kirkware_tracer_time = true,
+    kirkware_legit_fov = {minimum = 0.25, maximum = 45},
+    kirkware_legit_smoothing = {minimum = 1, maximum = 40},
+    kirkware_legit_max_distance = {minimum = 100, maximum = 50000},
+    kirkware_legit_sort = {minimum = 0, maximum = 2, integer = true},
+    kirkware_trigger_delay = {minimum = 0, maximum = 1},
+    kirkware_rage_fov = {minimum = 1, maximum = 180},
+    kirkware_rage_max_distance = {minimum = 100, maximum = 50000},
+    kirkware_rage_sort = {minimum = 0, maximum = 2, integer = true},
+    kirkware_aim_teammates = {minimum = 0, maximum = 1, integer = true},
+    kirkware_legit_require_attack = {minimum = 0, maximum = 1, integer = true},
+    kirkware_fov = {minimum = 60, maximum = 130},
+    kirkware_zoom_fov = {minimum = 10, maximum = 100},
+    kirkware_thirdperson_distance = {minimum = 30, maximum = 300},
+    kirkware_entity_distance = {minimum = 250, maximum = 10000},
+    kirkware_freecam_speed = {minimum = 50, maximum = 4000},
+    kirkware_freecam_boost = {minimum = 1, maximum = 10},
+    kirkware_tracer_time = {minimum = 0.05, maximum = 5},
 }
 
 local function parseBoolean(value)
@@ -58,27 +62,28 @@ local function applyModule(id, value)
 end
 
 local function applyConVar(name, value)
-    if not allowedConVars[name] then
+    local definition = allowedConVars[name]
+    if not definition then
         return
     end
     local convar = GetConVar(name)
     if not convar then
         return
     end
-    value = string.Trim(value or "")
-    if value == "" then
+
+    local numeric = tonumber(string.Trim(value or ""))
+    if numeric == nil then
         return
+    end
+    numeric = math.Clamp(numeric, definition.minimum, definition.maximum)
+    if definition.integer then
+        numeric = math.floor(numeric + 0.5)
     end
 
-    local numeric = tonumber(value)
-    if numeric ~= nil then
-        if math.abs(convar:GetFloat() - numeric) <= 0.0001 then
-            return
-        end
-    elseif convar:GetString() == value then
+    if math.abs(convar:GetFloat() - numeric) <= 0.0001 then
         return
     end
-    RunConsoleCommand(name, value)
+    RunConsoleCommand(name, tostring(numeric))
 end
 
 local function applyProfile(raw)
