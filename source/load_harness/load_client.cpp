@@ -3,6 +3,7 @@
 #include <charconv>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -26,13 +27,27 @@ struct Target {
     fs::path control_dir;
 };
 
+fs::path control_root() {
+    const char* configured = std::getenv("KIRKWARE_LOAD_CONTROL_ROOT");
+    if (configured == nullptr || configured[0] == '\0') {
+        return fs::path("/tmp");
+    }
+
+    std::error_code ec;
+    fs::path root = fs::absolute(fs::path(configured), ec);
+    if (ec) {
+        return fs::path(configured).lexically_normal();
+    }
+    return root.lexically_normal();
+}
+
 std::string target_prefix() {
     return "kirkware-load-target-" +
            std::to_string(static_cast<unsigned long>(::getuid())) + "-";
 }
 
 fs::path control_dir_for(pid_t pid) {
-    return fs::path("/tmp") /
+    return control_root() /
            (target_prefix() + std::to_string(static_cast<long>(pid)));
 }
 
@@ -65,7 +80,7 @@ std::vector<Target> discover_targets() {
     const std::string prefix = target_prefix();
 
     std::error_code ec;
-    for (const fs::directory_entry& entry : fs::directory_iterator("/tmp", ec)) {
+    for (const fs::directory_entry& entry : fs::directory_iterator(control_root(), ec)) {
         if (ec) {
             break;
         }
@@ -219,11 +234,13 @@ bool ping_target(const Target& target, std::string& error) {
 void print_targets() {
     const std::vector<Target> targets = discover_targets();
     if (targets.empty()) {
-        std::cout << "No cooperative load targets are running.\n";
+        std::cout << "No cooperative load targets are running under "
+                  << control_root().string() << ".\n";
         return;
     }
 
-    std::cout << "Running cooperative load targets:\n";
+    std::cout << "Running cooperative load targets under "
+              << control_root().string() << ":\n";
     for (const Target& target : targets) {
         std::cout << "  PID " << static_cast<long>(target.pid)
                   << "  " << target.control_dir.string() << '\n';
@@ -244,7 +261,8 @@ std::optional<pid_t> parse_pid(std::string_view text) {
 std::optional<Target> choose_target_interactively() {
     const std::vector<Target> targets = discover_targets();
     if (targets.empty()) {
-        std::cout << "No targets found. Start kirkware-load-target first.\n";
+        std::cout << "No targets found under " << control_root().string()
+                  << ". Start kirkware-load-target with the same control root first.\n";
         return std::nullopt;
     }
 
@@ -263,9 +281,7 @@ std::optional<Target> choose_target_interactively() {
 
     unsigned long selection = 0;
     const auto result = std::from_chars(input.data(), input.data() + input.size(), selection);
-    if (result.ec != std::errc {} ||
-        result.ptr != input.data() + input.size() ||
-        selection == 0) {
+    if (result.ec != std::errc {} || result.ptr != input.data() + input.size() || selection == 0) {
         return std::nullopt;
     }
     if (selection > targets.size()) {
@@ -294,6 +310,7 @@ int interactive_target(const Target& selected) {
 
     while (true) {
         std::cout << "\nTarget PID " << static_cast<long>(selected.pid) << "\n"
+                  << "Control root " << control_root().string() << "\n"
                   << "  1. Load test .so\n"
                   << "  2. Status\n"
                   << "  3. Unload module\n"
@@ -368,6 +385,7 @@ void print_help() {
         << "  kirkware-load-client --target PID --unload\n"
         << "  kirkware-load-client --target PID --quit\n\n"
         << "Transport: private per-PID control files plus SIGUSR1. No Unix socket is used.\n"
+        << "Set KIRKWARE_LOAD_CONTROL_ROOT to choose the parent folder (default: /tmp).\n"
         << "The selected process must still be a cooperating kirkware-load-target process.\n";
 }
 
