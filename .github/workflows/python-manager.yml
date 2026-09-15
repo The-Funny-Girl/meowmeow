@@ -1,0 +1,39 @@
+name: Python manager
+
+on:
+  push:
+    branches:
+      - main
+      - python-manager-native-module
+  pull_request:
+
+jobs:
+  manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile Python manager
+        run: python3 -m py_compile kirkware.py
+
+      - name: Run manager self-test
+        run: python3 kirkware.py self-test
+
+      - name: Check command help
+        run: |
+          python3 kirkware.py --help
+          python3 kirkware.py build --help
+          python3 kirkware.py loader --help
+          python3 kirkware.py native --help
+          python3 kirkware.py gmod --help
+
+      - name: Fetch Garry's Mod module headers
+        run: git clone --depth 1 https://github.com/danielga/garrysmod_common.git .ci/garrysmod_common
+
+      - name: Build Linux x64 GMod native module
+        run: python3 kirkware.py native build --gmcommon .ci/garrysmod_common --no-fetch --clean
+
+      - name: Verify native artifact is ELF
+        run: |
+          test -f build-gmod-native/gmcl_kirkware_native_linux64.dll
+          file build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q 'ELF 64-bit'
