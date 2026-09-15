@@ -66,7 +66,9 @@ find_game_dir() {
     local candidates=(
         "$HOME/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/.steam/steam/steamapps/common/GarrysMod"
+        "$HOME/.steam/debian-installation/steamapps/common/GarrysMod"
         "$HOME/.steam/root/steamapps/common/GarrysMod"
+        "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/GarrysMod"
         "$HOME/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod"
     )
 
