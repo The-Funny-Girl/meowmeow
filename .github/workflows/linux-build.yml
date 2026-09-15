@@ -85,6 +85,7 @@ jobs:
             libsdl2-dev \
             libsdl2-image-dev \
             libgl1-mesa-dev \
+            libfreetype6-dev \
             xvfb \
             xauth
 
@@ -150,6 +151,7 @@ jobs:
             libsdl2-dev \
             libsdl2-image-dev \
             libgl1-mesa-dev \
+            libfreetype6-dev \
             xvfb \
             xauth
 
