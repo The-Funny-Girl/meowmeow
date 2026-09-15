@@ -142,18 +142,6 @@ function KW.LoadProfile(name)
     return true, safe
 end
 
-function KW.DeleteProfile(name)
-    local path, safe = profilePath(name)
-    if not path then
-        return false, safe
-    end
-    if not file.Exists(path, "DATA") then
-        return false, "profile not found: " .. safe
-    end
-    file.Delete(path)
-    return true, safe
-end
-
 function KW.ListProfiles()
     file.CreateDir(dataDirectory)
     file.CreateDir(profilesDirectory)
@@ -174,11 +162,6 @@ end)
 concommand.Add("kirkware_profile_load", function(_, _, arguments)
     local ok, detail = KW.LoadProfile(table.concat(arguments, "_"))
     print("[kirkware linux] " .. (ok and "loaded profile " or "profile error: ") .. detail)
-end)
-
-concommand.Add("kirkware_profile_delete", function(_, _, arguments)
-    local ok, detail = KW.DeleteProfile(table.concat(arguments, "_"))
-    print("[kirkware linux] " .. (ok and "deleted profile " or "profile error: ") .. detail)
 end)
 
 concommand.Add("kirkware_profiles", function()
