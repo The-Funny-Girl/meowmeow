@@ -175,7 +175,12 @@ run_target() {
 
 run_client() {
     start_managed_target
-    "$BUILD_DIR/kirkware-load-client"
+
+    local target_pid
+    target_pid="$(managed_target_pid)" || fail "managed target disappeared before client startup"
+
+    printf 'Opening loader directly for managed target PID %s\n' "$target_pid"
+    "$BUILD_DIR/kirkware-load-client" --target "$target_pid"
 }
 
 run_self_test() {
@@ -204,8 +209,8 @@ run_demo() {
     done
     [[ -S "$socket_path" ]] || fail "target socket did not appear"
 
-    printf '\nTemporary target PID %s is ready. Opening loader UI...\n' "$target_pid"
-    "$BUILD_DIR/kirkware-load-client"
+    printf '\nTemporary target PID %s is ready. Opening loader directly...\n' "$target_pid"
+    "$BUILD_DIR/kirkware-load-client" --target "$target_pid"
 
     cleanup_demo
     trap - EXIT INT TERM
