@@ -29,6 +29,15 @@ local function playerKey(playerEntity)
     return steamId
 end
 
+local function playerByUserId(userId)
+    for _, playerEntity in ipairs(player.GetAll()) do
+        if playerEntity:UserID() == userId then
+            return playerEntity
+        end
+    end
+    return nil
+end
+
 local function loadRules()
     file.CreateDir(dataDirectory)
     local raw = file.Read(dataFile, "DATA")
@@ -102,6 +111,38 @@ function KW.PlayerRuleColor(rule)
     end
     return Color(43, 151, 250)
 end
+
+function KW.PlayerTargetWeight(playerEntity)
+    local rule = KW.GetPlayerRule(playerEntity)
+    if rule == "ignore" or rule == "friend" then
+        return nil
+    end
+    return rule == "priority" and -1000 or 0
+end
+
+concommand.Add("kirkware_players", function()
+    print("[kirkware linux] userid | rule | name")
+    for _, playerEntity in ipairs(player.GetAll()) do
+        print(string.format("%d | %s | %s", playerEntity:UserID(),
+                            KW.GetPlayerRule(playerEntity), playerEntity:Nick()))
+    end
+end)
+
+concommand.Add("kirkware_player_rule", function(_, _, arguments)
+    local userId = tonumber(arguments[1] or "")
+    local rule = string.lower(arguments[2] or "")
+    if not userId or not validRules[rule] then
+        print("usage: kirkware_player_rule <userid> <normal|ignore|priority|friend>")
+        return
+    end
+    local playerEntity = playerByUserId(userId)
+    if not IsValid(playerEntity) then
+        print("[kirkware linux] no player with userid " .. tostring(userId))
+        return
+    end
+    KW.SetPlayerRule(playerEntity, rule)
+    print(string.format("[kirkware linux] %s -> %s", playerEntity:Nick(), rule))
+end)
 
 concommand.Add("kirkware_player_rules_clear", function()
     KW.PlayerRules = {}
