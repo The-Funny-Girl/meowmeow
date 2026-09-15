@@ -10,12 +10,13 @@ injection/manual-map/hook loader or anti-cheat/server-setting bypass behavior.
 Implemented:
 
 - Insert opens/closes the in-game menu.
-- Dynamic Aim, Visuals, Misc, Players, and Tuning pages.
+- Dynamic Aim, Visuals, Misc, Players, Hotkeys, and Tuning pages.
 - Module state persists in `garrysmod/data/kirkware_linux/modules.json`.
 - Per-player state persists in `garrysmod/data/kirkware_linux/players.json`.
 - Per-module hotkeys persist in `garrysmod/data/kirkware_linux/binds.json`.
 - Reset-to-defaults command/button.
-- Generic module bind commands (`kirkware_bind`, `kirkware_binds`).
+- Generic module bind backend plus an in-menu `DBinder` editor.
+- Insert is reserved and cannot be rebound away from the menu.
 - Player normal/ignore/priority/friend rules.
 
 ## Aim / combat
@@ -57,19 +58,23 @@ normal supported client-addon surface used by this port.
 Implemented:
 
 - master player visuals switch
-- names
-- boxes
-- health bar
-- armor bar
+- names and boxes
+- configurable team colors
+- optional Steam profile names
+- anonymous ESP labels
+- health bar and numeric health
+- armor bar and numeric armor
 - distance
 - active weapon class
 - velocity
 - skeleton
 - team information
-- usergroup information
+- usergroup/staff information
 - noclip flag
+- cloaked/translucent flag
 - off-screen direction arrows
 - player outlines through world geometry using the halo renderer
+- priority/friend/ignore-aware outline colors
 - hit marker
 - local hit sound
 - current target line
@@ -95,6 +100,9 @@ Implemented:
 Implemented:
 
 - custom center crosshair
+- crosshair outline
+- rainbow crosshair
+- configurable crosshair size/gap/thickness/rainbow speed
 - first-person weapon material tint
 - first-person hands material tint
 - local bullet tracers with configurable lifetime
@@ -107,6 +115,7 @@ Implemented:
 
 - third person with collision trace and configurable distance
 - normal camera FOV override
+- local viewmodel FOV override with original-value restoration
 - zoom FOV
 - freecam with configurable speed/boost
 - bunnyhop helper
@@ -114,6 +123,30 @@ Implemented:
 - auto-pistol input helper
 - fast-stop helper
 - use-spam helper
+
+Direct `r_aspectratio` manipulation is intentionally not bypassed because the
+engine marks that route cheat-protected. The supported port does not defeat
+engine/server cvar restrictions.
+
+## Pathfinder
+
+Implemented using an already-loaded Garry's Mod navmesh:
+
+- enable/disable pathfinder
+- set destination from current crosshair world point
+- clear current path
+- A* search across connected `CNavArea` objects
+- automatic route walking
+- optional view alignment toward the next point
+- optional jump assist for higher route points
+- optional crouch support for crouch-marked nav areas
+- walk/run behavior
+- world-space route visualization
+- configurable node tolerance/search limit
+- one-shot set/clear actions that can be clicked or hotkeyed
+
+The port never generates, edits, saves, or force-loads navmesh data. Maps with
+no navmesh simply cannot use the feature.
 
 ## Player list
 
@@ -124,7 +157,17 @@ Implemented:
 - Players page in the Insert menu
 - priority affects target selection
 - ignore/friend are excluded from supported aim targeting
+- outline colors reflect player state
 - console listing and rule-management commands
+
+## Notifications / local UI
+
+Implemented:
+
+- spectator list
+- enabled-module list
+- local player join/leave notices
+- join/leave notices respect anonymous mode
 
 ## Intentionally excluded Windows functionality
 
@@ -145,6 +188,10 @@ not being ported into the Linux supported-addon path:
 - script dumping/protection bypass
 - fake latency / packet choking
 - tickbase shifting/fake-command abuse
+- spread-seed manipulation / generic no-spread
+- fake-angle/network anti-aim
+- backtrack modes that depend on command/tick manipulation
+- direct engine cvar bypasses for cheat-protected settings
 - other features whose implementation requires unsupported network/prediction
   manipulation rather than documented client addon APIs
 
@@ -157,9 +204,9 @@ port does not attempt to bypass that policy.
 Some Windows features depended directly on Source-engine internals reached via
 in-process hooks. Where a documented client Lua equivalent exists, the Linux
 port implements the user-facing behavior through that supported interface.
-Where no equivalent exists without injection, hooks, evasion, or network abuse,
-the feature remains excluded instead of being represented by a misleading
-checkbox.
+Where no equivalent exists without injection, hooks, evasion, privileged engine
+cvar bypasses, or network abuse, the feature remains excluded instead of being
+represented by a misleading checkbox.
 
 ## Validation
 
