@@ -331,6 +331,10 @@ int main(int argc, char** argv) {
         unload_module(ignored);
     }
 
+    if (quit_requested) {
+        ::usleep(100000);
+    }
+
     std::error_code cleanup_ec;
     fs::remove_all(control_dir, cleanup_ec);
     return 0;
