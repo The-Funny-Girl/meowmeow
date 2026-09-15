@@ -2,7 +2,7 @@ name: Linux load harness
 
 on:
   push:
-    branches: [linux-load-harness]
+    branches: [linux-load-harness, linux-load-harness-signal-ipc]
   pull_request:
     branches: [main]
 
@@ -34,6 +34,39 @@ jobs:
 
       - name: Build and test
         run: ./build-load-harness.sh
+
+      - name: Exercise PID signal IPC end to end
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          target="$PWD/build-load-harness/kirkware-load-target"
+          client="$PWD/build-load-harness/kirkware-load-client"
+          module="$PWD/build-load-harness/libkirkware_load_test.so"
+
+          "$target" >/tmp/kirkware-load-target-ci.log 2>&1 &
+          target_pid=$!
+          control_dir="/tmp/kirkware-load-target-$(id -u)-${target_pid}"
+
+          cleanup() {
+            kill "$target_pid" 2>/dev/null || true
+            wait "$target_pid" 2>/dev/null || true
+            rm -rf -- "$control_dir"
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 100); do
+            [[ -d "$control_dir" ]] && break
+            sleep 0.05
+          done
+          test -d "$control_dir"
+
+          "$client" --target "$target_pid" --status | grep -F 'OK unloaded'
+          "$client" --target "$target_pid" --load "$module" | grep -F 'OK loaded'
+          "$client" --target "$target_pid" --status | grep -F 'OK loaded'
+          "$client" --target "$target_pid" --unload | grep -F 'OK unloaded'
+          "$client" --target "$target_pid" --quit | grep -F 'OK quitting'
+          wait "$target_pid"
+          trap - EXIT
 
   sanitizers:
     runs-on: ubuntu-24.04
