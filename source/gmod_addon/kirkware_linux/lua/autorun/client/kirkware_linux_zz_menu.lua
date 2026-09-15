@@ -24,6 +24,7 @@ local categories = {
     {id = "visuals", label = "visuals"},
     {id = "misc", label = "misc"},
     {id = "players", label = "players"},
+    {id = "hotkeys", label = "hotkeys"},
     {id = "tuning", label = "tuning"},
 }
 
@@ -204,6 +205,68 @@ local function addPlayerControls(parent)
     end
 end
 
+local function createHotkeyRow(parent, id, definition)
+    local row = vgui.Create("DPanel", parent)
+    row:Dock(TOP)
+    row:SetTall(46)
+    row:DockMargin(0, 0, 0, 7)
+    row.Paint = function(self, width, height)
+        draw.RoundedBox(4, 0, 0, width, height,
+                        self:IsHovered() and theme.panelHover or theme.panel)
+        surface.SetDrawColor(theme.border)
+        surface.DrawOutlinedRect(0, 0, width, height, 1)
+        draw.SimpleText(definition.name or id, "KirkwareLinuxText", 12,
+                        height * 0.5, theme.text,
+                        TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    end
+
+    local clear = vgui.Create("DButton", row)
+    clear:SetText("clear")
+    clear:SetTextColor(theme.muted)
+    clear:SetSize(48, 26)
+    clear.Think = function(self)
+        self:SetPos(math.max(0, row:GetWide() - 58), 10)
+    end
+    clear.DoClick = function()
+        if KW.SetModuleBind then
+            KW.SetModuleBind(id, -1)
+        end
+    end
+
+    local binder = vgui.Create("DBinder", row)
+    binder:SetSize(100, 26)
+    binder.Think = function(self)
+        self:SetPos(math.max(0, row:GetWide() - 166), 10)
+    end
+    local current = KW.GetModuleBind and KW.GetModuleBind(id) or nil
+    binder:SetValue(current or KEY_NONE or 0)
+    binder.OnChange = function(self, code)
+        if not KW.SetModuleBind then
+            return
+        end
+        local ok = KW.SetModuleBind(id, code)
+        if not ok then
+            local restored = KW.GetModuleBind and KW.GetModuleBind(id) or nil
+            self:SetValue(restored or KEY_NONE or 0)
+        end
+    end
+end
+
+local function addHotkeyControls(parent)
+    local ids = {}
+    for id in pairs(KW.Modules or {}) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids, function(left, right)
+        local leftName = KW.Modules[left].name or left
+        local rightName = KW.Modules[right].name or right
+        return leftName < rightName
+    end)
+    for _, id in ipairs(ids) do
+        createHotkeyRow(parent, id, KW.Modules[id])
+    end
+end
+
 local function rebuild(frame)
     if not IsValid(frame) or not IsValid(frame.ModuleList) then
         return
@@ -215,6 +278,9 @@ local function rebuild(frame)
         return
     elseif KW.ActiveCategory == "players" then
         addPlayerControls(frame.ModuleList)
+        return
+    elseif KW.ActiveCategory == "hotkeys" then
+        addHotkeyControls(frame.ModuleList)
         return
     end
 
@@ -262,7 +328,7 @@ local function openEnhancedMenu()
     if IsValid(KW.Frame) then
         KW.Frame:SetVisible(true)
         KW.Frame:MakePopup()
-        if KW.ActiveCategory == "players" then
+        if KW.ActiveCategory == "players" or KW.ActiveCategory == "hotkeys" then
             rebuild(KW.Frame)
         end
         gui.EnableScreenClicker(true)
