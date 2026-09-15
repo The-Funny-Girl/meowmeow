@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kirkware_linux VERSION 1.4.0 LANGUAGES CXX)
+project(kirkware_linux VERSION 1.5.0 LANGUAGES CXX)
 
 if(NOT UNIX OR APPLE)
     message(FATAL_ERROR "The Linux port requires a Linux host.")
@@ -10,6 +10,7 @@ include(GNUInstallDirs)
 include(CTest)
 
 option(KIRKWARE_BUILD_TESTS "Build Linux platform tests" ON)
+option(KIRKWARE_BUILD_UI "Build the native Linux UI" ON)
 option(KIRKWARE_ENABLE_SANITIZERS "Enable ASan/UBSan for Linux development" OFF)
 option(KIRKWARE_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
@@ -85,6 +86,51 @@ add_executable(kirkware source/platform/linux_main.cpp)
 target_link_libraries(kirkware PRIVATE kirkware_platform)
 kirkware_configure_target(kirkware)
 
+if(KIRKWARE_BUILD_UI)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    pkg_check_modules(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
+    find_package(OpenGL REQUIRED)
+    find_package(Freetype REQUIRED)
+
+    set(KIRKWARE_IMGUI_ROOT
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui-1.90-wip-18995)
+
+    add_library(kirkware_imgui STATIC
+        ${KIRKWARE_IMGUI_ROOT}/imgui.cpp
+        ${KIRKWARE_IMGUI_ROOT}/imgui_draw.cpp
+        ${KIRKWARE_IMGUI_ROOT}/imgui_tables.cpp
+        ${KIRKWARE_IMGUI_ROOT}/imgui_widgets.cpp
+        ${KIRKWARE_IMGUI_ROOT}/misc/freetype/imgui_freetype.cpp
+    )
+    target_include_directories(kirkware_imgui PUBLIC ${KIRKWARE_IMGUI_ROOT})
+    target_compile_features(kirkware_imgui PUBLIC cxx_std_20)
+    target_compile_definitions(kirkware_imgui PUBLIC IMGUI_ENABLE_FREETYPE)
+    target_link_libraries(kirkware_imgui PUBLIC Freetype::Freetype)
+
+    add_executable(kirkware_ui
+        source/linux_ui/linux_kirkware_ui.cpp
+        source/linux_ui/linux_ui_main.cpp
+    )
+    set_target_properties(kirkware_ui PROPERTIES OUTPUT_NAME kirkware-ui)
+    target_include_directories(kirkware_ui PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/linux_ui
+        ${KIRKWARE_IMGUI_ROOT}
+    )
+    target_compile_features(kirkware_ui PRIVATE cxx_std_20)
+    target_compile_definitions(kirkware_ui PRIVATE
+        KIRKWARE_SOURCE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/source/assets"
+    )
+    target_link_libraries(kirkware_ui PRIVATE
+        kirkware_platform
+        kirkware_imgui
+        PkgConfig::SDL2
+        PkgConfig::SDL2_IMAGE
+        OpenGL::GL
+    )
+    kirkware_configure_target(kirkware_ui)
+endif()
+
 if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
     add_executable(kirkware_platform_tests tests/linux_platform_tests.cpp)
     target_link_libraries(kirkware_platform_tests PRIVATE kirkware_platform)
@@ -120,6 +166,16 @@ if(KIRKWARE_BUILD_TESTS AND BUILD_TESTING)
             PROPERTIES ENVIRONMENT "${test_environment}")
     endforeach()
     set_tests_properties(linux-cli-bad-option PROPERTIES WILL_FAIL TRUE)
+
+    if(KIRKWARE_BUILD_UI AND NOT KIRKWARE_ENABLE_SANITIZERS)
+        find_program(KIRKWARE_XVFB_RUN xvfb-run)
+        if(KIRKWARE_XVFB_RUN)
+            add_test(NAME linux-ui-smoke
+                COMMAND ${KIRKWARE_XVFB_RUN} -a $<TARGET_FILE:kirkware_ui> --smoke-test)
+            set_tests_properties(linux-ui-smoke PROPERTIES
+                ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+        endif()
+    endif()
 endif()
 
 install(TARGETS kirkware
@@ -128,6 +184,14 @@ install(TARGETS kirkware
 install(TARGETS kirkware_component
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/kirkware
 )
+if(KIRKWARE_BUILD_UI)
+    install(TARGETS kirkware_ui
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    install(FILES source/assets/garrys-mod.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/kirkware
+    )
+endif()
 install(FILES BUILDING-LINUX.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(FILES docs/kirkware.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
