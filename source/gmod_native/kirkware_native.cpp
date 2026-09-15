@@ -4,6 +4,7 @@ using namespace GarrysMod::Lua;
 
 namespace {
 constexpr const char *kVersion = "kirkware-native-linux64-v1";
+constexpr const char *kGlobalName = "kirkware_native";
 
 LUA_FUNCTION_STATIC(KirkwareNativeVersion)
 {
@@ -47,12 +48,19 @@ GMOD_MODULE_OPEN()
     LUA->PushCFunction(KirkwareNativeLoaded);
     LUA->SetField(-2, "loaded");
 
-    LUA->SetField(-2, "kirkware_native");
+    LUA->SetField(-2, kGlobalName);
     LUA->Pop(1);
     return 0;
 }
 
 GMOD_MODULE_CLOSE()
 {
+    // Do not leave a Lua table containing C function pointers behind if the
+    // module is unloaded.  A stale table could otherwise point at unmapped
+    // native code after gmod13_close returns.
+    LUA->PushSpecial(SPECIAL_GLOB);
+    LUA->PushNil();
+    LUA->SetField(-2, kGlobalName);
+    LUA->Pop(1);
     return 0;
 }
