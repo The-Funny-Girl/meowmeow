@@ -266,9 +266,21 @@ void LinuxKirkwareUi::FinishComponentLoad()
     if (clean_workspace_) {
         platform::AppPaths paths;
         std::string cleanup_error;
-        if (platform::DiscoverAppPaths(paths, &cleanup_error)) {
-            platform::CleanupStaleWorkspaces(
-                paths.workspaces, std::chrono::hours(0), nullptr);
+        if (!platform::DiscoverAppPaths(paths, &cleanup_error)) {
+            failure_stage_ = "workspace_paths";
+            failure_detail_ = cleanup_error.empty()
+                                  ? "unable to resolve Linux workspace paths"
+                                  : cleanup_error;
+            Enter(State::LocalError, 300.0f, 210.0f);
+            return;
+        }
+        platform::CleanupStaleWorkspaces(
+            paths.workspaces, std::chrono::hours(0), &cleanup_error);
+        if (!cleanup_error.empty()) {
+            failure_stage_ = "workspace_cleanup";
+            failure_detail_ = cleanup_error;
+            Enter(State::LocalError, 300.0f, 210.0f);
+            return;
         }
     }
 
@@ -349,12 +361,12 @@ void LinuxKirkwareUi::Update(float delta_seconds)
 
 int LinuxKirkwareUi::ClientWidth() const noexcept
 {
-    return std::clamp(static_cast<int>(current_width_), 300, 380);
+    return std::clamp(static_cast<int>(current_width_), 300, 379);
 }
 
 int LinuxKirkwareUi::ClientHeight() const noexcept
 {
-    return std::clamp(static_cast<int>(current_height_), 210, 290);
+    return std::clamp(static_cast<int>(current_height_), 210, 289);
 }
 
 void LinuxKirkwareUi::RenderShell(ImDrawList* draw,
