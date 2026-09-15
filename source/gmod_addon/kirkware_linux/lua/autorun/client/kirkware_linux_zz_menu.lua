@@ -1,5 +1,5 @@
 -- Enhanced dynamic menu for the Kirkware Linux Garry's Mod addon.
--- Loaded after the module files so every registered module appears automatically.
+-- Loaded after the module/player-state files so registered features appear automatically.
 
 if not KIRKWARE_LINUX then
     return
@@ -23,6 +23,7 @@ local categories = {
     {id = "aim", label = "aim"},
     {id = "visuals", label = "visuals"},
     {id = "misc", label = "misc"},
+    {id = "players", label = "players"},
     {id = "tuning", label = "tuning"},
 }
 
@@ -37,6 +38,9 @@ local tuning = {
     {label = "zoom fov", convar = "kirkware_zoom_fov", min = 10, max = 100, decimals = 0},
     {label = "thirdperson distance", convar = "kirkware_thirdperson_distance", min = 30, max = 300, decimals = 0},
     {label = "entity distance", convar = "kirkware_entity_distance", min = 250, max = 10000, decimals = 0},
+    {label = "freecam speed", convar = "kirkware_freecam_speed", min = 50, max = 4000, decimals = 0},
+    {label = "freecam boost", convar = "kirkware_freecam_boost", min = 1, max = 10, decimals = 1},
+    {label = "tracer lifetime", convar = "kirkware_tracer_time", min = 0.05, max = 5, decimals = 2},
 }
 
 local tuningChecks = {
@@ -125,6 +129,81 @@ local function addTuningControls(parent)
     end
 end
 
+local function createPlayerRow(parent, playerEntity)
+    local row = vgui.Create("DPanel", parent)
+    row:Dock(TOP)
+    row:SetTall(48)
+    row:DockMargin(0, 0, 0, 7)
+    row.Paint = function(self, width, height)
+        draw.RoundedBox(4, 0, 0, width, height,
+                        self:IsHovered() and theme.panelHover or theme.panel)
+        surface.SetDrawColor(theme.border)
+        surface.DrawOutlinedRect(0, 0, width, height, 1)
+        if not IsValid(playerEntity) then
+            draw.SimpleText("player left", "KirkwareLinuxText", 12, height * 0.5,
+                            theme.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+            return
+        end
+        draw.SimpleText(playerEntity:Nick(), "KirkwareLinuxText", 12, 8,
+                        theme.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+        draw.SimpleText("userid " .. playerEntity:UserID(), "KirkwareLinuxSmall",
+                        12, 28, theme.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    end
+
+    local ruleButton = vgui.Create("DButton", row)
+    ruleButton:SetText("")
+    ruleButton:SetSize(94, 28)
+    ruleButton.Think = function(self)
+        self:SetPos(math.max(0, row:GetWide() - 106), 10)
+    end
+    ruleButton.Paint = function(self, width, height)
+        local rule = IsValid(playerEntity) and
+                     (KW.GetPlayerRule and KW.GetPlayerRule(playerEntity) or "normal") or
+                     "normal"
+        local color = KW.PlayerRuleColor and KW.PlayerRuleColor(rule) or theme.accent
+        draw.RoundedBox(4, 0, 0, width, height,
+                        self:IsHovered() and Color(color.r, color.g, color.b, 80)
+                                         or Color(color.r, color.g, color.b, 45))
+        surface.SetDrawColor(color)
+        surface.DrawOutlinedRect(0, 0, width, height, 1)
+        draw.SimpleText(rule, "KirkwareLinuxSmall", width * 0.5, height * 0.5,
+                        color, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+    end
+    ruleButton.DoClick = function()
+        if IsValid(playerEntity) and KW.CyclePlayerRule then
+            KW.CyclePlayerRule(playerEntity)
+        end
+    end
+end
+
+local function addPlayerControls(parent)
+    local localPlayer = LocalPlayer()
+    local players = {}
+    for _, playerEntity in ipairs(player.GetAll()) do
+        if IsValid(playerEntity) and playerEntity ~= localPlayer then
+            players[#players + 1] = playerEntity
+        end
+    end
+    table.sort(players, function(left, right)
+        return string.lower(left:Nick()) < string.lower(right:Nick())
+    end)
+
+    if #players == 0 then
+        local label = vgui.Create("DLabel", parent)
+        label:Dock(TOP)
+        label:DockMargin(12, 10, 12, 0)
+        label:SetText("no other players are connected")
+        label:SetTextColor(theme.muted)
+        label:SetFont("KirkwareLinuxText")
+        label:SizeToContents()
+        return
+    end
+
+    for _, playerEntity in ipairs(players) do
+        createPlayerRow(parent, playerEntity)
+    end
+end
+
 local function rebuild(frame)
     if not IsValid(frame) or not IsValid(frame.ModuleList) then
         return
@@ -133,6 +212,9 @@ local function rebuild(frame)
     frame.ModuleList:Clear()
     if KW.ActiveCategory == "tuning" then
         addTuningControls(frame.ModuleList)
+        return
+    elseif KW.ActiveCategory == "players" then
+        addPlayerControls(frame.ModuleList)
         return
     end
 
@@ -180,6 +262,9 @@ local function openEnhancedMenu()
     if IsValid(KW.Frame) then
         KW.Frame:SetVisible(true)
         KW.Frame:MakePopup()
+        if KW.ActiveCategory == "players" then
+            rebuild(KW.Frame)
+        end
         gui.EnableScreenClicker(true)
         return
     end
@@ -273,8 +358,11 @@ local function openEnhancedMenu()
     list:SetPos(12, 40)
     list:SetSize(494, 358)
 
-    if KW.ActiveCategory ~= "aim" and KW.ActiveCategory ~= "visuals" and
-       KW.ActiveCategory ~= "misc" and KW.ActiveCategory ~= "tuning" then
+    local validCategory = false
+    for _, category in ipairs(categories) do
+        validCategory = validCategory or KW.ActiveCategory == category.id
+    end
+    if not validCategory then
         KW.ActiveCategory = "aim"
     end
     rebuild(frame)
@@ -295,8 +383,6 @@ KW.RebuildModuleList = function()
     end
 end
 
--- Replace the first-stage reset command so modules registered by later files are
--- also reset, not just the six modules from the initial menu implementation.
 concommand.Add("kirkware_reset_modules", function()
     for id, definition in pairs(KW.Modules or {}) do
         KW.Settings[id] = definition.default == true
