@@ -7,10 +7,45 @@
 #include <utility>
 
 namespace kirkware::platform {
+namespace {
+
+constexpr unsigned kMinimumRetentionHours = 1;
+constexpr unsigned kMaximumRetentionHours = 24 * 30;
+
+void AppendExistsCheck(std::vector<HealthCheck>& checks,
+                       std::string name,
+                       const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        checks.push_back(
+            {std::move(name), false,
+             "unable to inspect " + path.string() + ": " + ec.message()});
+        return;
+    }
+    checks.push_back({std::move(name), exists, path.string()});
+}
+
+} // namespace
 
 bool Application::Initialize(const ApplicationOptions& options,
                              std::string* error)
 {
+    workspace_.reset();
+    logger_.reset();
+    paths_ = {};
+    settings_ = {};
+    settings_path_.clear();
+
+    if (options.workspace_retention_hours &&
+        (*options.workspace_retention_hours < kMinimumRetentionHours ||
+         *options.workspace_retention_hours > kMaximumRetentionHours)) {
+        if (error)
+            *error = "workspace_retention_hours must be 1..720";
+        return false;
+    }
+
     if (!DiscoverAppPaths(paths_, error))
         return false;
     if (!EnsureAppDirectories(paths_, error))
@@ -74,16 +109,12 @@ std::vector<HealthCheck> Application::CheckHealth() const
         const bool ok = ProbeWritableDirectory(path, &error);
         checks.push_back({name, ok, ok ? path.string() : std::move(error)});
     }
-    checks.push_back({"settings-file", std::filesystem::exists(settings_path_),
-                      settings_path_.string()});
-    if (logger_) {
-        checks.push_back({"log-file", std::filesystem::exists(logger_->path()),
-                          logger_->path().string()});
-    }
-    if (workspace_) {
-        checks.push_back({"workspace", std::filesystem::exists(workspace_->path()),
-                          workspace_->path().string()});
-    }
+
+    AppendExistsCheck(checks, "settings-file", settings_path_);
+    if (logger_)
+        AppendExistsCheck(checks, "log-file", logger_->path());
+    if (workspace_)
+        AppendExistsCheck(checks, "workspace", workspace_->path());
     return checks;
 }
 

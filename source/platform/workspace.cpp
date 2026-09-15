@@ -19,6 +19,12 @@ namespace {
 std::atomic<unsigned long long> g_workspace_counter{0};
 constexpr const char* kLockFileName = ".workspace.lock";
 
+enum class WorkspaceActivity {
+    Inactive,
+    Active,
+    Unknown,
+};
+
 fs::path CandidatePath(const fs::path& root)
 {
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -47,18 +53,25 @@ int AcquireWorkspaceLock(const fs::path& directory, std::string* error)
     return -1;
 }
 
-bool WorkspaceIsActive(const fs::path& directory)
+WorkspaceActivity GetWorkspaceActivity(const fs::path& directory)
 {
     const fs::path lock_path = directory / kLockFileName;
     const int fd = ::open(lock_path.c_str(), O_RDWR | O_CLOEXEC);
     if (fd < 0)
-        return false;
-    const bool active = ::flock(fd, LOCK_EX | LOCK_NB) != 0 &&
-                        (errno == EWOULDBLOCK || errno == EAGAIN);
-    if (!active)
+        return errno == ENOENT ? WorkspaceActivity::Inactive
+                               : WorkspaceActivity::Unknown;
+
+    if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
         ::flock(fd, LOCK_UN);
+        ::close(fd);
+        return WorkspaceActivity::Inactive;
+    }
+
+    const int lock_error = errno;
     ::close(fd);
-    return active;
+    if (lock_error == EWOULDBLOCK || lock_error == EAGAIN)
+        return WorkspaceActivity::Active;
+    return WorkspaceActivity::Unknown;
 }
 
 } // namespace
@@ -200,7 +213,9 @@ std::size_t CleanupStaleWorkspaces(const fs::path& root,
         if (name.rfind("session-", 0) != 0)
             continue;
         const auto modified = entry.last_write_time(item_ec);
-        if (item_ec || modified >= cutoff || WorkspaceIsActive(entry.path()))
+        if (item_ec || modified >= cutoff)
+            continue;
+        if (GetWorkspaceActivity(entry.path()) != WorkspaceActivity::Inactive)
             continue;
         fs::remove_all(entry.path(), item_ec);
         if (!item_ec)

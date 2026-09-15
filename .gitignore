@@ -5,3 +5,5 @@
 CMakeUserPresets.json
 compile_commands.json
 *.log
+__pycache__/
+*.py[cod]

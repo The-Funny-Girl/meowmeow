@@ -1,8 +1,8 @@
 #include "file_utils.hpp"
 
+#include <array>
 #include <atomic>
 #include <fstream>
-#include <sstream>
 #include <system_error>
 #include <unistd.h>
 
@@ -56,7 +56,18 @@ bool EnsurePrivateDirectory(const fs::path& path, std::string* error)
                             ec.message());
         return false;
     }
-    if (!fs::is_directory(path, ec) || ec) {
+
+    const fs::file_status status = fs::symlink_status(path, ec);
+    if (ec) {
+        SetError(error, "unable to inspect " + path.string() + ": " +
+                            ec.message());
+        return false;
+    }
+    if (fs::is_symlink(status)) {
+        SetError(error, "refusing symlinked private directory " + path.string());
+        return false;
+    }
+    if (!fs::is_directory(status)) {
         SetError(error, path.string() + " is not a directory");
         return false;
     }
@@ -118,30 +129,39 @@ bool ReadTextFile(const fs::path& path,
                   std::string& text,
                   std::string* error)
 {
-    std::error_code ec;
-    const std::uintmax_t size = fs::file_size(path, ec);
-    if (ec) {
-        SetError(error, "unable to stat " + path.string() + ": " +
-                            ec.message());
-        return false;
-    }
-    if (size > maximum_size) {
-        SetError(error, path.string() + " exceeds the configured size limit");
-        return false;
-    }
-
     std::ifstream stream(path, std::ios::binary);
     if (!stream) {
         SetError(error, "unable to open " + path.string());
         return false;
     }
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    if (!stream.good() && !stream.eof()) {
-        SetError(error, "unable to read " + path.string());
-        return false;
+
+    std::string result;
+    constexpr std::size_t kChunkSize = 8192;
+    std::array<char, kChunkSize> buffer{};
+
+    for (;;) {
+        stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize count = stream.gcount();
+        if (count > 0) {
+            const std::size_t amount = static_cast<std::size_t>(count);
+            if (result.size() > maximum_size ||
+                amount > maximum_size - result.size()) {
+                SetError(error,
+                         path.string() + " exceeds the configured size limit");
+                return false;
+            }
+            result.append(buffer.data(), amount);
+        }
+
+        if (stream.eof())
+            break;
+        if (!stream) {
+            SetError(error, "unable to read " + path.string());
+            return false;
+        }
     }
-    text = buffer.str();
+
+    text = std::move(result);
     return true;
 }
 

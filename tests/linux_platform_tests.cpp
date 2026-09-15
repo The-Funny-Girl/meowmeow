@@ -109,6 +109,11 @@ int main()
     Expect(kirkware::platform::ReadTextFile(text_path, 1024, text, &error),
            "ReadTextFile succeeds");
     Expect(text == "hello\n", "ReadTextFile preserves contents");
+    std::string exact_size;
+    Expect(kirkware::platform::ReadTextFile(text_path, 6, exact_size, &error),
+           "ReadTextFile accepts a file exactly at the size limit");
+    Expect(exact_size == "hello\n",
+           "exact-limit ReadTextFile preserves contents");
     std::string too_small;
     Expect(!kirkware::platform::ReadTextFile(text_path, 3, too_small, &error),
            "ReadTextFile enforces maximum size");
@@ -190,6 +195,25 @@ int main()
                "Steam command is preferred when available");
     }
 
+    const fs::path bad_bin = root / "bad-bin";
+    fs::create_directories(bad_bin);
+    const fs::path bad_steam = bad_bin / "steam";
+    Expect(kirkware::platform::AtomicWriteText(
+               bad_steam, "#!/definitely/not/a/real/interpreter\n", &error),
+           "broken Steam launcher fixture can be written");
+    fs::permissions(bad_steam,
+                    fs::perms::owner_read | fs::perms::owner_write |
+                        fs::perms::owner_exec,
+                    fs::perm_options::replace);
+    {
+        ScopedEnvironment path_override("PATH", bad_bin.string());
+        std::string launch_error;
+        Expect(!kirkware::platform::LaunchGarrysMod(&launch_error),
+               "launcher exec failure is reported to the caller");
+        Expect(!launch_error.empty(),
+               "launcher exec failure includes an error message");
+    }
+
     const fs::path invalid_settings_path =
         paths.config_root / "settings-invalid.conf";
     Expect(kirkware::platform::AtomicWriteText(
@@ -246,16 +270,36 @@ int main()
     Expect(!locked_workspace_path.empty() && !fs::exists(locked_workspace_path),
            "stale workspace disappears after unlock");
 
+    {
+        kirkware::platform::Application invalid_application;
+        kirkware::platform::ApplicationOptions invalid_options;
+        invalid_options.workspace_retention_hours = 0;
+        std::string invalid_error;
+        Expect(!invalid_application.Initialize(invalid_options, &invalid_error),
+               "Application rejects an invalid retention override");
+    }
+
     kirkware::platform::Application application;
     kirkware::platform::ApplicationOptions options;
     Expect(application.Initialize(options, &error),
            "Application initialization succeeds");
     Expect(fs::exists(application.settings_path()),
            "Application creates linux.conf on first run");
+    const fs::path application_workspace =
+        application.workspace() ? application.workspace()->path() : fs::path{};
     const auto checks = application.CheckHealth();
     Expect(!checks.empty(), "health checks are produced");
     for (const auto& check : checks)
         Expect(check.ok, check.name.c_str());
+
+    kirkware::platform::ApplicationOptions no_workspace_options;
+    no_workspace_options.create_workspace = false;
+    Expect(application.Initialize(no_workspace_options, &error),
+           "Application can be safely reinitialized");
+    Expect(application.workspace() == nullptr,
+           "reinitialization clears a previous workspace");
+    Expect(application_workspace.empty() || !fs::exists(application_workspace),
+           "reinitialization cleans the previous temporary workspace");
 
     std::error_code ignored;
     fs::remove_all(root, ignored);
