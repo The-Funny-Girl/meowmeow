@@ -12,6 +12,8 @@ BUILD_UI="ON"
 ENABLE_SANITIZERS="OFF"
 WARNINGS_AS_ERRORS="OFF"
 INSTALL_DEPS=0
+INSTALL_ADDON=0
+GAME_DIR_OVERRIDE=""
 CLEAN=0
 PACKAGE=0
 RUN_UI=0
@@ -22,14 +24,18 @@ usage() {
 Usage: ./build-linux.sh [options]
 
 Quick examples:
-  ./build-linux.sh                 Build Release + run tests
-  ./build-linux.sh --run           Build/test, then launch the Linux UI
-  ./build-linux.sh --clean --run   Clean rebuild, test, then launch UI
-  ./build-linux.sh --install-deps  Install Linux Mint/Ubuntu build deps, then build
-  ./build-linux.sh --sanitize      Debug ASan/UBSan build with warnings as errors
+  ./build-linux.sh                         Build Release + run tests
+  ./build-linux.sh --run                   Build/test, then launch the Linux UI
+  ./build-linux.sh --install-addon         Build/test and install the in-game menu
+  ./build-linux.sh --install-addon --run   Install the in-game menu, then launch UI
+  ./build-linux.sh --clean --run           Clean rebuild, test, then launch UI
+  ./build-linux.sh --install-deps          Install Linux Mint/Ubuntu build deps, then build
+  ./build-linux.sh --sanitize              Debug ASan/UBSan build with warnings as errors
 
 Options:
   --run                  Launch kirkware-ui after a successful build
+  --install-addon        Install/update the supported Garry's Mod in-game addon
+  --game-dir PATH        Garry's Mod directory for --install-addon
   --clean                Remove the selected build directory first
   --install-deps         Install Debian/Ubuntu/Linux Mint build dependencies
   --debug                Build Debug instead of Release
@@ -76,6 +82,14 @@ while (( $# > 0 )); do
         --run)
             RUN_UI=1
             ;;
+        --install-addon)
+            INSTALL_ADDON=1
+            ;;
+        --game-dir)
+            shift
+            (( $# > 0 )) || fail "--game-dir requires a path"
+            GAME_DIR_OVERRIDE="$1"
+            ;;
         --clean)
             CLEAN=1
             ;;
@@ -120,6 +134,10 @@ while (( $# > 0 )); do
     esac
     shift
 done
+
+if [[ -n "$GAME_DIR_OVERRIDE" ]] && (( ! INSTALL_ADDON )); then
+    fail "--game-dir is only valid with --install-addon"
+fi
 
 if (( INSTALL_DEPS )); then
     install_deps
@@ -215,11 +233,25 @@ if (( PACKAGE )); then
     fi
 fi
 
+if (( INSTALL_ADDON )); then
+    [[ -x "$ROOT_DIR/install-gmod-addon.sh" ]] || \
+        fail "install-gmod-addon.sh is missing or not executable"
+    installer_args=()
+    if [[ -n "$GAME_DIR_OVERRIDE" ]]; then
+        installer_args+=( --game-dir "$GAME_DIR_OVERRIDE" )
+    fi
+    printf '==> Installing Garry\047s Mod in-game addon\n'
+    "$ROOT_DIR/install-gmod-addon.sh" "${installer_args[@]}"
+fi
+
 printf '==> Build complete\n'
 printf '    CLI:       %s/kirkware\n' "$BUILD_DIR"
 printf '    Component: %s/libkirkware_component.so\n' "$BUILD_DIR"
 if [[ "$BUILD_UI" == "ON" ]]; then
     printf '    UI:        %s/kirkware-ui\n' "$BUILD_DIR"
+fi
+if (( INSTALL_ADDON )); then
+    printf '    In-game:   press Insert after Garry\047s Mod loads\n'
 fi
 
 if (( RUN_UI )); then
