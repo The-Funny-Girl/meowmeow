@@ -87,6 +87,11 @@ local routeIndex = 1
 local goalPosition = nil
 local routeStatus = "none"
 
+local function navmeshAvailable()
+    return navmesh ~= nil and navmesh.IsLoaded ~= nil and
+           navmesh.GetNearestNavArea ~= nil
+end
+
 local function areaValid(area)
     return area ~= nil and area.GetID ~= nil and area:GetID() ~= 0
 end
@@ -173,7 +178,12 @@ local function buildRoute(destination)
     if not IsValid(localPlayer) then
         return false, "local player is unavailable"
     end
+    if not navmeshAvailable() then
+        routeStatus = "navmesh api unavailable"
+        return false, routeStatus
+    end
     if not navmesh.IsLoaded() then
+        routeStatus = "no loaded navmesh"
         return false, "this map has no loaded navmesh"
     end
 
