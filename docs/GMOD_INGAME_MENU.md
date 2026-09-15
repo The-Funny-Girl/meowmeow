@@ -2,6 +2,8 @@
 
 The Linux port includes a client-side Garry's Mod addon that uses the game's supported Lua/addon interfaces. It does not use the preserved Windows injection, manual-mapping, remote-hooking, anti-cheat-bypass, or network-exploit path.
 
+For the detailed Windows-to-Linux feature checklist, see [LINUX_FEATURE_PARITY.md](LINUX_FEATURE_PARITY.md).
+
 ## Install or update
 
 From the repository root:
@@ -10,97 +12,181 @@ From the repository root:
 ./build-linux.sh --install-addon
 ```
 
-The helper first builds/tests the Linux port and then discovers the Garry's Mod install through the Linux runtime. If automatic discovery is not possible, provide the install directory explicitly:
+If automatic Garry's Mod discovery is not possible:
 
 ```sh
 ./build-linux.sh --install-addon --game-dir "/path/to/steamapps/common/GarrysMod"
 ```
 
-The standalone installer can also be used without rebuilding:
+The standalone installer can update the addon without rebuilding:
 
 ```sh
 ./install-gmod-addon.sh
 ```
 
-It only creates/replaces `garrysmod/addons/kirkware_linux`. No other addon directory is modified.
+It only creates/replaces `garrysmod/addons/kirkware_linux`. Restart Garry's Mod after installing or updating the addon.
 
-To remove it:
+## Menu
 
-```sh
-./install-gmod-addon.sh --uninstall
-```
+Press **Insert** to open/close the in-game menu. `kirkware_menu` toggles the same menu from the console.
 
-Restart Garry's Mod after installing or updating the addon.
+The menu is divided into:
 
-## Menu key
+- **Aim** — legit/rage targeting, hitscan, triggerbot, recoil and target controls
+- **Visuals** — player/entity ESP, outlines, chams-style viewmodel tints, tracers, hit feedback
+- **Misc** — movement, camera, spectator and HUD helpers
+- **Players** — cycle each player through normal / ignore / priority / friend
+- **Tuning** — FOV, smoothing, distances, freecam speed and tracer lifetime
 
-Press **Insert** in-game to open or close the menu. The key uses edge-triggered input so holding Insert does not repeatedly toggle the window.
-
-The console command below opens/closes the same menu:
-
-```text
-kirkware_menu
-```
-
-## Module registry
-
-Module state is stored client-side in:
+Module state is saved to:
 
 ```text
 garrysmod/data/kirkware_linux/modules.json
 ```
 
-The current Linux module set maps to existing Kirkware configuration names where practical.
+Player rules are saved to:
 
-### Visuals
+```text
+garrysmod/data/kirkware_linux/players.json
+```
 
-- `esp_player_enable` — master player-visual switch
-- `esp_player_name` — player names
-- `esp_player_box` — simple 2D player boxes
-- `esp_player_hpbar` — health bars
-- `esp_player_arbar` — armor bars
-- `esp_player_distance` — player distance
-- `esp_player_weapon` — active weapon class
-- `esp_player_skeleton` — model-bone skeleton
-- `esp_player_velocity` — movement speed
-- `esp_other_crosshair` — center crosshair
-- `chams_enable` — through-world player outline using the supported halo renderer
-- `entities_enable` — master nearby-entity switch
-- `entities_name` — nearby entity class names
-- `entities_distance` — nearby entity distance
+Module hotkeys are saved to:
 
-### Misc / movement / camera
+```text
+garrysmod/data/kirkware_linux/binds.json
+```
 
-- `misc_thirdperson` — collision-aware third-person camera
-- `misc_fov_changer` — configurable normal camera FOV
-- `misc_zoom` — configurable zoom FOV
-- `misc_bunnyhop` — held-jump retrigger helper
-- `misc_auto_strafe` — mouse-direction air strafe input
-- `misc_auto_pistol` — alternating held primary attack input
-- `menu_spectators` — current spectator list
-- `menu_watermark` — small Kirkware Linux watermark
+## Aim modules
 
-Changes are saved automatically. `kirkware_reset_modules` restores module defaults.
+Current supported aim modules include:
 
-Useful client convars:
+- `legit_enable`
+- `legit_fov_circle`
+- `legit_hitscan`
+- `legit_triggerbot`
+- `legit_recoil`
+- `legit_visible_check`
+- `rage_enable`
+- `rage_autofire`
+- `rage_fov_circle`
+- `rage_hitscan`
+- `rage_norecoil`
+- `rage_target_lock`
+- `rage_visible_check`
+- `esp_target_line`
+
+Important tuning convars include:
+
+```text
+kirkware_legit_fov 6
+kirkware_legit_smoothing 8
+kirkware_legit_max_distance 10000
+kirkware_trigger_delay 0.03
+kirkware_rage_fov 35
+kirkware_rage_max_distance 20000
+kirkware_aim_teammates 0
+kirkware_legit_require_attack 1
+```
+
+## Visual modules
+
+Player/entity/viewmodel features include:
+
+- names and 2D boxes
+- health/armor bars
+- distance, weapon and velocity
+- skeleton
+- team/usergroup/noclip information
+- offscreen arrows
+- supported entity names/distances/boxes/indexes
+- through-world player halo outlines
+- center crosshair
+- target line
+- hit marker / local hit sound
+- first-person hand/weapon material tint
+- local bullet tracers
+
+## Misc / movement / camera
+
+Current supported helpers include:
+
+- third person
+- normal FOV override
+- zoom
+- freecam
+- bunnyhop helper
+- mouse-direction auto-strafe
+- auto pistol
+- fast stop
+- use spam
+- spectator list
+- enabled-module HUD list
+- watermark
+
+Additional tuning convars:
 
 ```text
 kirkware_fov 100
 kirkware_zoom_fov 40
 kirkware_thirdperson_distance 110
 kirkware_entity_distance 2500
+kirkware_freecam_speed 650
+kirkware_freecam_boost 3
+kirkware_tracer_time 0.8
 ```
 
-These are archived client convars, so their numeric values persist between sessions.
+## Player rules
+
+The Players page cycles a player through:
+
+- `normal`
+- `ignore`
+- `priority`
+- `friend`
+
+Aim targeting never selects `ignore` or `friend`. `priority` receives target-selection preference when it is otherwise a valid target.
+
+Console equivalents:
+
+```text
+kirkware_players
+kirkware_player_rule <userid> <normal|ignore|priority|friend>
+kirkware_player_rules_clear
+```
+
+## Module hotkeys
+
+Insert is permanently reserved for the menu. Any registered module can otherwise be assigned a toggle key:
+
+```text
+kirkware_bind <module_id> <key name>
+kirkware_bind <module_id> none
+kirkware_binds
+kirkware_binds_clear
+```
+
+Examples:
+
+```text
+kirkware_bind misc_freecam f6
+kirkware_bind misc_thirdperson mouse3
+kirkware_bind misc_zoom z
+```
+
+## Reset
+
+```text
+kirkware_reset_modules
+```
+
+restores every registered module to its default state. The Reset Defaults button in the menu does the same for module toggles.
 
 ## Compatibility boundary
 
-This implementation deliberately stays on Garry's Mod's supported client Lua/addon interfaces. Servers can disable clientside addons with `sv_allowcslua 0`; when they do, this addon is not expected to run there. The Linux port does not try to bypass that server setting or an anti-cheat system.
+This implementation deliberately stays on Garry's Mod's supported client Lua/addon interfaces. A game/server configuration that disables clientside Lua/addons can prevent this addon from loading. The Linux port does not attempt to bypass that policy or an anti-cheat system.
 
-The current migration excludes the old network/server-crasher group, packet/tickbase abuse, trace-cleaning/evasion behavior, process injection, manual mapping, and remote hooks.
+The migration intentionally excludes server crashers, malformed/net-channel attacks, fake latency/packet choking, tickbase/fake-command abuse, spread-seed manipulation, Windows process injection/manual mapping, remote/process hooks, trace cleaning, and stealth/evasion code.
 
-Combat-targeting modules are being kept separate from the visual/movement layer so they can be validated without destabilizing movement prediction or the Insert menu.
+## Architecture
 
-## Architecture boundary
-
-The addon is loaded normally by Garry's Mod from its `addons` directory and uses standard client Lua hooks such as `HUDPaint`, `PreDrawHalos`, `CalcView`, `CreateMove`, and `Think`. The protected Windows runtime remains unchanged.
+The addon is loaded normally from Garry's Mod's `addons` directory and uses supported client hooks such as `HUDPaint`, `PreDrawHalos`, `CalcView`, `CreateMove`, `Think`, viewmodel drawing hooks, and normal game events. The protected Windows runtime remains unchanged.
