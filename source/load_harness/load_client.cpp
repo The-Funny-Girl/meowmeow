@@ -29,6 +29,11 @@ std::string target_prefix() {
            std::to_string(static_cast<unsigned long>(::getuid())) + "-";
 }
 
+fs::path socket_path_for(pid_t pid) {
+    return fs::path("/tmp") /
+           (target_prefix() + std::to_string(static_cast<long>(pid)) + ".sock");
+}
+
 fs::path default_module_path() {
     std::error_code ec;
     const fs::path executable = fs::read_symlink("/proc/self/exe", ec);
@@ -38,11 +43,21 @@ fs::path default_module_path() {
     return fs::current_path() / "build-load-harness" / "libkirkware_load_test.so";
 }
 
+std::optional<Target> target_from_pid(pid_t pid) {
+    const fs::path socket_path = socket_path_for(pid);
+    struct stat info {};
+    if (::lstat(socket_path.c_str(), &info) != 0 ||
+        !S_ISSOCK(info.st_mode) ||
+        info.st_uid != ::getuid()) {
+        return std::nullopt;
+    }
+    return Target {pid, socket_path};
+}
+
 std::vector<Target> discover_targets() {
     std::vector<Target> targets;
     const std::string prefix = target_prefix();
     constexpr std::string_view suffix = ".sock";
-    const uid_t current_uid = ::getuid();
 
     std::error_code ec;
     for (const fs::directory_entry& entry : fs::directory_iterator("/tmp", ec)) {
@@ -52,13 +67,6 @@ std::vector<Target> discover_targets() {
 
         const std::string name = entry.path().filename().string();
         if (!name.starts_with(prefix) || !name.ends_with(suffix)) {
-            continue;
-        }
-
-        struct stat info {};
-        if (::lstat(entry.path().c_str(), &info) != 0 ||
-            !S_ISSOCK(info.st_mode) ||
-            info.st_uid != current_uid) {
             continue;
         }
 
@@ -75,7 +83,9 @@ std::vector<Target> discover_targets() {
             continue;
         }
 
-        targets.push_back(Target {static_cast<pid_t>(parsed_pid), entry.path()});
+        if (const auto target = target_from_pid(static_cast<pid_t>(parsed_pid)); target.has_value()) {
+            targets.push_back(*target);
+        }
     }
 
     std::sort(targets.begin(), targets.end(), [](const Target& left, const Target& right) {
@@ -85,14 +95,7 @@ std::vector<Target> discover_targets() {
 }
 
 std::optional<Target> find_target(pid_t pid) {
-    const std::vector<Target> targets = discover_targets();
-    const auto it = std::find_if(targets.begin(), targets.end(), [pid](const Target& target) {
-        return target.pid == pid;
-    });
-    if (it == targets.end()) {
-        return std::nullopt;
-    }
-    return *it;
+    return target_from_pid(pid);
 }
 
 bool send_all(int fd, std::string_view text) {
@@ -174,6 +177,18 @@ bool request(const fs::path& socket_path,
     return true;
 }
 
+bool ping_target(const Target& target, std::string& error) {
+    std::string response;
+    if (!request(target.socket_path, "PING", response, error)) {
+        return false;
+    }
+    if (response != "OK pong\n") {
+        error = "target returned an unexpected PING response";
+        return false;
+    }
+    return true;
+}
+
 void print_targets() {
     const std::vector<Target> targets = discover_targets();
     if (targets.empty()) {
@@ -200,7 +215,7 @@ std::optional<pid_t> parse_pid(std::string_view text) {
 std::optional<Target> choose_target_interactively() {
     const std::vector<Target> targets = discover_targets();
     if (targets.empty()) {
-        std::cout << "No targets found. Start kirkware-load-target in another terminal first.\n";
+        std::cout << "No targets found. Start kirkware-load-target first.\n";
         return std::nullopt;
     }
 
@@ -238,14 +253,16 @@ void print_response(const std::string& response) {
     }
 }
 
-int interactive_mode() {
-    const std::optional<Target> selected = choose_target_interactively();
-    if (!selected.has_value()) {
-        return 0;
+int interactive_target(const Target& selected) {
+    std::string ping_error;
+    if (!ping_target(selected, ping_error)) {
+        std::cerr << "error: target PID " << static_cast<long>(selected.pid)
+                  << " is not responding: " << ping_error << '\n';
+        return 1;
     }
 
     while (true) {
-        std::cout << "\nTarget PID " << static_cast<long>(selected->pid) << "\n"
+        std::cout << "\nTarget PID " << static_cast<long>(selected.pid) << "\n"
                   << "  1. Load test .so\n"
                   << "  2. Status\n"
                   << "  3. Unload module\n"
@@ -290,7 +307,7 @@ int interactive_mode() {
 
         std::string response;
         std::string error;
-        if (!request(selected->socket_path, command, response, error)) {
+        if (!request(selected.socket_path, command, response, error)) {
             std::cerr << "error: " << error << '\n';
             return 1;
         }
@@ -301,11 +318,20 @@ int interactive_mode() {
     }
 }
 
+int interactive_mode() {
+    const std::optional<Target> selected = choose_target_interactively();
+    if (!selected.has_value()) {
+        return 0;
+    }
+    return interactive_target(*selected);
+}
+
 void print_help() {
     std::cout
         << "Usage:\n"
-        << "  kirkware-load-client                         Interactive terminal UI\n"
+        << "  kirkware-load-client                         Interactive target discovery UI\n"
         << "  kirkware-load-client --list                  List cooperative targets\n"
+        << "  kirkware-load-client --target PID            Open UI directly for exact target PID\n"
         << "  kirkware-load-client --target PID --status\n"
         << "  kirkware-load-client --target PID --load /absolute/module.so\n"
         << "  kirkware-load-client --target PID --unload\n"
@@ -368,7 +394,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (!target_pid.has_value() || command.empty()) {
+    if (!target_pid.has_value()) {
         print_help();
         return 2;
     }
@@ -376,8 +402,12 @@ int main(int argc, char** argv) {
     const std::optional<Target> target = find_target(*target_pid);
     if (!target.has_value()) {
         std::cerr << "error: cooperative target PID " << static_cast<long>(*target_pid)
-                  << " was not found\n";
+                  << " was not found at " << socket_path_for(*target_pid).string() << '\n';
         return 1;
+    }
+
+    if (command.empty()) {
+        return interactive_target(*target);
     }
 
     std::string response;
