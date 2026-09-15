@@ -2,7 +2,7 @@ name: Linux load harness
 
 on:
   push:
-    branches: [linux-load-harness, linux-load-harness-signal-ipc]
+    branches: [linux-load-harness, linux-load-harness-signal-ipc, configurable-control-root]
   pull_request:
     branches: [main]
 
@@ -35,22 +35,25 @@ jobs:
       - name: Build and test
         run: ./build-load-harness.sh
 
-      - name: Exercise PID signal IPC end to end
+      - name: Exercise PID signal IPC with custom control root
         shell: bash
         run: |
           set -Eeuo pipefail
           target="$PWD/build-load-harness/kirkware-load-target"
           client="$PWD/build-load-harness/kirkware-load-client"
           module="$PWD/build-load-harness/libkirkware_load_test.so"
+          control_root="$RUNNER_TEMP/kirkware-control-root"
+          mkdir -p -- "$control_root"
 
-          "$target" >/tmp/kirkware-load-target-ci.log 2>&1 &
+          KIRKWARE_LOAD_CONTROL_ROOT="$control_root" \
+            "$target" >"$RUNNER_TEMP/kirkware-load-target-ci.log" 2>&1 &
           target_pid=$!
-          control_dir="/tmp/kirkware-load-target-$(id -u)-${target_pid}"
+          control_dir="$control_root/kirkware-load-target-$(id -u)-${target_pid}"
 
           cleanup() {
             kill "$target_pid" 2>/dev/null || true
             wait "$target_pid" 2>/dev/null || true
-            rm -rf -- "$control_dir"
+            rm -rf -- "$control_dir" "$control_root"
           }
           trap cleanup EXIT
 
@@ -60,11 +63,11 @@ jobs:
           done
           test -d "$control_dir"
 
-          "$client" --target "$target_pid" --status | grep -F 'OK unloaded'
-          "$client" --target "$target_pid" --load "$module" | grep -F 'OK loaded'
-          "$client" --target "$target_pid" --status | grep -F 'OK loaded'
-          "$client" --target "$target_pid" --unload | grep -F 'OK unloaded'
-          "$client" --target "$target_pid" --quit | grep -F 'OK quitting'
+          env KIRKWARE_LOAD_CONTROL_ROOT="$control_root" "$client" --target "$target_pid" --status | grep -F 'OK unloaded'
+          env KIRKWARE_LOAD_CONTROL_ROOT="$control_root" "$client" --target "$target_pid" --load "$module" | grep -F 'OK loaded'
+          env KIRKWARE_LOAD_CONTROL_ROOT="$control_root" "$client" --target "$target_pid" --status | grep -F 'OK loaded'
+          env KIRKWARE_LOAD_CONTROL_ROOT="$control_root" "$client" --target "$target_pid" --unload | grep -F 'OK unloaded'
+          env KIRKWARE_LOAD_CONTROL_ROOT="$control_root" "$client" --target "$target_pid" --quit | grep -F 'OK quitting'
           wait "$target_pid"
           trap - EXIT
 
