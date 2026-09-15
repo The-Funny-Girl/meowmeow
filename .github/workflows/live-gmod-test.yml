@@ -1,0 +1,30 @@
+name: Live GMod test helpers
+
+on:
+  push:
+    branches: [live-private-gmod-test]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: |
+          bash -n launch-gmod-private-test.sh
+          bash -n verify-gmod-live-test.sh
+      - name: Exercise launcher dry run
+        run: |
+          mkdir -p "$RUNNER_TEMP/fake-gmod/garrysmod/addons/kirkware_linux/lua/autorun/client"
+          STEAM_BIN=/bin/echo bash launch-gmod-private-test.sh \
+            --dry-run --no-install --game-dir "$RUNNER_TEMP/fake-gmod"
+      - name: Exercise help output
+        run: |
+          bash launch-gmod-private-test.sh --help >/dev/null
+          bash verify-gmod-live-test.sh --help >/dev/null
