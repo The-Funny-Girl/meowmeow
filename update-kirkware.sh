@@ -17,13 +17,139 @@ fail() {
     exit 1
 }
 
+have_color() {
+    [[ -t 1 && "${TERM:-dumb}" != "dumb" ]]
+}
+
+if have_color; then
+    UI_BOLD=$'\033[1m'
+    UI_DIM=$'\033[2m'
+    UI_ACCENT=$'\033[36m'
+    UI_GOOD=$'\033[32m'
+    UI_RESET=$'\033[0m'
+else
+    UI_BOLD=""
+    UI_DIM=""
+    UI_ACCENT=""
+    UI_GOOD=""
+    UI_RESET=""
+fi
+
+ui_banner() {
+    if have_color; then
+        printf '\033[2J\033[H'
+    fi
+    printf '%s%sKIRKWARE UPDATER%s\n' "$UI_BOLD" "$UI_ACCENT" "$UI_RESET"
+    printf '%sSafe fast-forward updates for the local checkout%s\n' "$UI_DIM" "$UI_RESET"
+    printf '%s\n' '----------------------------------------------'
+
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local current_branch current_commit
+        current_branch="$(git branch --show-current 2>/dev/null || true)"
+        current_commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+        printf '  Local:  %s @ %s\n' "${current_branch:-detached}" "${current_commit:-unknown}"
+        printf '  Target: %s/%s\n' "$REMOTE" "$BRANCH"
+    fi
+    printf '\n'
+}
+
+run_menu_update() {
+    printf '\n'
+    if env KIRKWARE_NONINTERACTIVE=1 "$ROOT_DIR/update-kirkware.sh" "$@"; then
+        printf '\n%sCompleted successfully.%s\n' "$UI_GOOD" "$UI_RESET"
+    else
+        local rc=$?
+        printf '\nUpdate command failed with exit code %s.\n' "$rc" >&2
+    fi
+    printf 'Press Enter to return to the menu...'
+    read -r _ || true
+}
+
+show_repo_status() {
+    printf '\n'
+    git status --short --branch
+    printf '\nLatest commit:\n'
+    git log -1 --oneline --decorate
+    printf '\nPress Enter to return to the menu...'
+    read -r _ || true
+}
+
+interactive_menu() {
+    command -v git >/dev/null 2>&1 || fail "git is not installed"
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+        fail "this script must be inside a Git checkout"
+
+    while true; do
+        ui_banner
+        cat <<'EOF'
+  1. Update source
+  2. Update + install GMod addon
+  3. Update + build/test
+  4. Update + build/test + install addon
+  5. Update + install addon + launch desktop UI
+  6. Stash local edits + update + install addon
+  7. Repository status
+  8. Update, then open builder menu
+  9. Update, then open .so load harness
+  0. Exit
+EOF
+        printf '\nSelect: '
+        read -r choice || return 0
+
+        case "$choice" in
+            1)
+                run_menu_update
+                ;;
+            2)
+                run_menu_update --install-addon
+                ;;
+            3)
+                run_menu_update --build
+                ;;
+            4)
+                run_menu_update --build --install-addon
+                ;;
+            5)
+                run_menu_update --install-addon --run
+                ;;
+            6)
+                run_menu_update --stash --install-addon
+                ;;
+            7)
+                show_repo_status
+                ;;
+            8)
+                if env KIRKWARE_NONINTERACTIVE=1 "$ROOT_DIR/update-kirkware.sh"; then
+                    "$ROOT_DIR/build-linux.sh"
+                fi
+                ;;
+            9)
+                if env KIRKWARE_NONINTERACTIVE=1 "$ROOT_DIR/update-kirkware.sh"; then
+                    [[ -x "$ROOT_DIR/build-load-harness.sh" ]] || \
+                        fail "build-load-harness.sh is missing or not executable"
+                    "$ROOT_DIR/build-load-harness.sh"
+                fi
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                printf 'Invalid selection. Press Enter...'
+                read -r _ || true
+                ;;
+        esac
+    done
+}
+
 usage() {
     cat <<'EOF'
 Usage: ./update-kirkware.sh [options]
 
 Safely update this downloaded Kirkware repository from GitHub.
+Run with no arguments in an interactive terminal to open the updater menu.
+Non-interactive no-argument use keeps the original update-only behavior.
 
-Default behavior:
+Default update behavior:
   - fetch origin
   - switch to main
   - fast-forward main to origin/main
@@ -52,6 +178,11 @@ Environment overrides:
   KIRKWARE_BRANCH       Default branch (default: main)
 EOF
 }
+
+if (( $# == 0 )) && [[ -t 0 && -t 1 ]] && [[ "${KIRKWARE_NONINTERACTIVE:-0}" != "1" ]]; then
+    interactive_menu
+    exit 0
+fi
 
 while (( $# > 0 )); do
     case "$1" in
@@ -172,7 +303,7 @@ if (( BUILD_AFTER )); then
     fi
 
     printf '==> Building updated source\n'
-    "$ROOT_DIR/build-linux.sh" "${build_args[@]}"
+    env KIRKWARE_NONINTERACTIVE=1 "$ROOT_DIR/build-linux.sh" "${build_args[@]}"
 elif (( INSTALL_ADDON )); then
     [[ -x "$ROOT_DIR/install-gmod-addon.sh" ]] || \
         fail "install-gmod-addon.sh is missing or not executable"
