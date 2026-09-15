@@ -1,23 +1,39 @@
 # Linux build
 
-The Linux port is a native C++20 target and is intentionally isolated from the original Windows build/runtime.
+The Linux port is a native C++20 target and is intentionally isolated from the original Windows build/runtime. It now includes both the command-line runtime and a native graphical UI that mirrors the existing Windows presentation while using Linux-safe runtime integrations.
 
 ## Requirements
 
 - Linux x86-64
 - CMake 3.20 or newer
 - GCC 11+ or Clang 14+ with C++20 support
+- SDL2 development files
+- SDL2_image development files
+- OpenGL development files
+- FreeType development files
 - Ninja is optional but recommended
+
+On Debian, Ubuntu, or Linux Mint the UI dependencies can be installed with:
+
+```sh
+sudo apt update
+sudo apt install build-essential cmake ninja-build pkg-config \
+  libsdl2-dev libsdl2-image-dev libgl1-mesa-dev libfreetype6-dev
+```
 
 ## Build and test
 
 ```sh
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-linux -j"$(nproc)"
 ctest --test-dir build-linux --output-on-failure
 ```
 
-The executable is `build-linux/kirkware` and the in-process Linux component is `build-linux/libkirkware_component.so`.
+The build produces:
+
+- `build-linux/kirkware` — command-line Linux runtime
+- `build-linux/kirkware-ui` — native graphical Linux UI
+- `build-linux/libkirkware_component.so` — in-process Linux component
 
 The supplied presets are a shorter alternative when Ninja is installed:
 
@@ -34,6 +50,30 @@ CC=clang CXX=clang++ cmake --preset linux-sanitize
 cmake --build --preset linux-sanitize
 ctest --preset linux-sanitize
 ```
+
+The UI can be disabled for a headless/runtime-only build with `-DKIRKWARE_BUILD_UI=OFF`.
+
+## Graphical UI
+
+Start the Linux UI with:
+
+```sh
+./build-linux/kirkware-ui
+```
+
+The Linux host uses SDL2 and OpenGL while retaining the dimensions, dark theme, color table, custom controls, animated resizing, login/home transitions, Garry's Mod tile, and borderless-window presentation of the Windows UI.
+
+The UI looks for `libkirkware_component.so` next to the executable and in normal installed library locations. A development component can be selected explicitly with:
+
+```sh
+./build-linux/kirkware-ui --component ./build-linux/libkirkware_component.so
+```
+
+`KIRKWARE_COMPONENT_PATH` can also select the component. `KIRKWARE_ASSET_DIR` can override the asset directory. `KIRKWARE_UI_FONT` and `KIRKWARE_UI_FONT_BOLD` can override the regular and bold fonts. The host tries Tahoma when installed, then common Liberation Sans and DejaVu Sans fallbacks.
+
+The Linux `load` control uses the supported in-process `ComponentSession` lifecycle. It does not invoke the preserved Windows process-injection/manual-mapping path. The `run garry's mod` option uses the normal Steam launcher integration. The Windows-only trace-cleaning option is not reproduced on Linux; the corresponding Linux control is `clean workspace`, which only removes inactive Kirkware-owned workspace directories while respecting active workspace locks.
+
+For CI and display-server diagnostics, `kirkware-ui --smoke-test` creates and renders a hidden UI for a small number of frames and exits.
 
 ## Runtime commands
 
@@ -55,7 +95,7 @@ ctest --preset linux-sanitize
 
 ## Linux in-process component
 
-`libkirkware_component.so` is a real Linux shared component with a stable C ABI. Its current status snapshot reports an in-process heartbeat, Linux `TracerPid`, file-backed mapping count, ABI version, and status detail.
+`libkirkware_component.so` is a native Linux shared component with a stable C ABI. Its current status snapshot reports an in-process heartbeat, Linux `TracerPid`, file-backed mapping count, ABI version, and status detail.
 
 The host-facing `ComponentSession` layer owns the lifecycle and validates the ABI before accepting a component. A protected application/game integration should load the shared component through a supported cooperating module/plugin/startup path and then use the same ABI lifecycle. The Linux runtime does not remotely attach to another process, write process memory, manually map an ELF object, or install remote hooks.
 
@@ -91,7 +131,7 @@ Install into a local prefix with:
 cmake --install build-linux --prefix "$HOME/.local"
 ```
 
-This places `kirkware` below `$HOME/.local/bin` and the Linux component below `$HOME/.local/lib/kirkware` by default.
+This installs `kirkware` and `kirkware-ui` below `$HOME/.local/bin`, the Linux component below `$HOME/.local/lib/kirkware`, and the Garry's Mod UI image below `$HOME/.local/share/kirkware` by default.
 
 Create a portable `.tar.gz` package with:
 
@@ -103,17 +143,17 @@ On Debian/Ubuntu/Linux Mint systems, create an installable `.deb` with:
 
 ```sh
 cpack --config build-linux/CPackConfig.cmake -G DEB -B packages
-sudo apt install ./packages/kirkware-linux_1.4.0_amd64.deb
+sudo apt install ./packages/kirkware-linux_1.5.0_amd64.deb
 ```
 
-The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binary and component.
+The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binaries and component.
 
-GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, creates both package formats, validates Debian metadata, publishes SHA-256 checksums, and uploads the executable plus `.tar.gz` and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
+GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, renders the UI under Xvfb/llvmpipe, creates both package formats, validates Debian metadata, publishes SHA-256 checksums, and uploads the CLI, UI, component, `.tar.gz`, and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
 
 ## Scope of the current port
 
-The Linux target provides native application startup, XDG path discovery, persistent validated settings, private directory creation, bounded file I/O, atomic text-file replacement, logging, locked temporary workspace lifecycle management, stale workspace cleanup, Steam/Garry's Mod discovery and normal launcher integration, a loadable in-process Linux protection component with a stable ABI, runtime health checks, a command-line interface, automated tests, packaging, and CI builds.
+The Linux target provides native application startup, the Windows-style graphical UI, XDG path discovery, persistent validated settings, private directory creation, bounded file I/O, atomic text-file replacement, logging, locked temporary workspace lifecycle management, stale workspace cleanup, Steam/Garry's Mod discovery and normal launcher integration, a loadable in-process Linux component with a stable ABI, runtime health checks, a command-line interface, automated tests, packaging, and CI builds.
 
-The original Windows process/bootstrap implementation remains preserved and isolated. The Linux component reproduces the surrounding lifecycle through a cooperating load path instead of translating remote process injection/manual mapping behavior.
+The original Windows process/bootstrap implementation and Windows UI remain preserved and isolated. The Linux UI reproduces presentation and benign interaction flow through native Linux interfaces while the component uses a cooperating in-process load path rather than translating remote process injection/manual mapping behavior.
 
 See `docs/LINUX_PORT_STATUS.md`, `docs/LINUX_ARCHITECTURE.md`, and `docs/LINUX_COMPONENT_RUNTIME.md` for the current migration map and architecture boundary.
