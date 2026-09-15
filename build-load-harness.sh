@@ -10,6 +10,7 @@ CLEAN=0
 RUN_TESTS=1
 ACTION="build"
 JOBS="${KIRKWARE_JOBS:-}"
+TARGET_PID=""
 MANAGED_PID_FILE="/tmp/kirkware-load-target-$(id -u)-managed.pid"
 MANAGED_LOG_FILE="/tmp/kirkware-load-target-$(id -u)-managed.log"
 
@@ -55,6 +56,7 @@ Options:
   --no-tests           Skip CTest
   --target             Build, then run the cooperative target
   --client             Build, ensure one managed target is running, then open loader UI
+  --pid N              Build, then open loader UI against an existing PID (skips managed target)
   --demo               Build, start a temporary target, then open loader UI
   --self-test          Build and run the direct dlopen/dlclose smoke test
   --build-dir PATH     Override build directory
@@ -183,6 +185,24 @@ run_client() {
     "$BUILD_DIR/kirkware-load-client" --target "$target_pid"
 }
 
+run_client_for_pid() {
+    local pid="$1"
+
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "target PID must be a positive integer"
+    kill -0 "$pid" 2>/dev/null || \
+        fail "no process with PID $pid, or you lack permission to signal it"
+
+    local socket_path="/tmp/kirkware-load-target-$(id -u)-${pid}.sock"
+    if [[ ! -S "$socket_path" ]]; then
+        printf '%sNote:%s no cooperative target socket at %s\n' "$DIM" "$RESET" "$socket_path" >&2
+        printf '%sThe client will only load into a process that speaks its loader protocol.%s\n' \
+            "$DIM" "$RESET" >&2
+    fi
+
+    printf 'Opening loader for PID %s\n' "$pid"
+    "$BUILD_DIR/kirkware-load-client" --target "$pid"
+}
+
 run_self_test() {
     "$BUILD_DIR/kirkware-load-target" --self-test "$BUILD_DIR/libkirkware_load_test.so"
 }
@@ -235,6 +255,7 @@ interactive_menu() {
   5. Full temporary demo session
   6. Sanitizer build + test
   7. Direct .so self-test
+  8. Open loader UI for a chosen PID
   0. Exit
 EOF
         printf '\nSelect: '
@@ -284,6 +305,16 @@ EOF
                 build_harness
                 run_self_test
                 ;;
+            8)
+                printf 'Enter target PID: '
+                if ! read -r chosen_pid; then
+                    printf '\n'
+                    continue
+                fi
+                RUN_TESTS=0
+                build_harness
+                run_client_for_pid "$chosen_pid"
+                ;;
             0)
                 return 0
                 ;;
@@ -325,6 +356,13 @@ while (( $# > 0 )); do
             ACTION="client"
             RUN_TESTS=0
             ;;
+        --pid)
+            shift
+            (( $# > 0 )) || fail "--pid requires a PID"
+            TARGET_PID="$1"
+            ACTION="client"
+            RUN_TESTS=0
+            ;;
         --demo)
             ACTION="demo"
             RUN_TESTS=0
@@ -363,7 +401,11 @@ case "$ACTION" in
         run_target
         ;;
     client)
-        run_client
+        if [[ -n "$TARGET_PID" ]]; then
+            run_client_for_pid "$TARGET_PID"
+        else
+            run_client
+        fi
         ;;
     demo)
         run_demo
