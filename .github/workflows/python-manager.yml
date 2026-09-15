@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - python-manager-native-module
+      - python-manager-audit-fixes
   pull_request:
 
 jobs:
@@ -27,13 +28,19 @@ jobs:
           python3 kirkware.py native --help
           python3 kirkware.py gmod --help
 
-      - name: Fetch Garry's Mod module headers
-        run: git clone --depth 1 https://github.com/danielga/garrysmod_common.git .ci/garrysmod_common
+      - name: Fetch pinned Garry's Mod module headers
+        run: |
+          git init .ci/garrysmod_common
+          git -C .ci/garrysmod_common remote add origin https://github.com/danielga/garrysmod_common.git
+          git -C .ci/garrysmod_common fetch --depth 1 origin f77a18d86f780a59ea30e4237016b05b790d4b70
+          git -C .ci/garrysmod_common checkout --detach FETCH_HEAD
 
       - name: Build Linux x64 GMod native module
         run: python3 kirkware.py native build --gmcommon .ci/garrysmod_common --no-fetch --clean
 
-      - name: Verify native artifact is ELF
+      - name: Verify native artifact is ELF and exports GMod entry points
         run: |
           test -f build-gmod-native/gmcl_kirkware_native_linux64.dll
           file build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q 'ELF 64-bit'
+          nm -D build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q ' gmod13_open$'
+          nm -D build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q ' gmod13_close$'
