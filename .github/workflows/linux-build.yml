@@ -43,6 +43,12 @@ jobs:
           ./install-gmod-addon.sh --game-dir "$fake_game" --uninstall
           test ! -e "$fake_game/garrysmod/addons/kirkware_linux"
 
+      - name: Validate Garry's Mod addon Lua syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          luac5.4 -p source/gmod_addon/kirkware_linux/lua/autorun/client/kirkware_linux.lua
+
       - name: Verify preserved Windows runtime is unchanged
         shell: bash
         run: |
