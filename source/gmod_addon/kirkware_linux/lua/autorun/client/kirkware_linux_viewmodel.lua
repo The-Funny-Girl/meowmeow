@@ -53,37 +53,48 @@ local tracerLifetime = CreateClientConVar(
     "kirkware_tracer_time", "0.8", true, false,
     "Kirkware local bullet tracer lifetime", 0.05, 5)
 local tracers = {}
+local weaponOverrideActive = false
+local handsOverrideActive = false
+
+local function resetRenderOverride()
+    render.MaterialOverride(nil)
+    render.SetColorModulation(1, 1, 1)
+end
 
 hook.Add("PreDrawViewModel", "KirkwareLinux.WeaponChams", function()
+    weaponOverrideActive = false
     if not enabled("chams_weapon_enable") then
         return
     end
     render.MaterialOverride(debugMaterial)
     render.SetColorModulation(0.17, 0.59, 0.98)
+    weaponOverrideActive = true
 end)
 
 hook.Add("PostDrawViewModel", "KirkwareLinux.WeaponChamsReset", function()
-    if not enabled("chams_weapon_enable") then
+    if not weaponOverrideActive then
         return
     end
-    render.MaterialOverride(nil)
-    render.SetColorModulation(1, 1, 1)
+    resetRenderOverride()
+    weaponOverrideActive = false
 end)
 
 hook.Add("PreDrawPlayerHands", "KirkwareLinux.HandChams", function()
+    handsOverrideActive = false
     if not enabled("chams_hands_enable") then
         return
     end
     render.MaterialOverride(debugMaterial)
     render.SetColorModulation(0.35, 0.8, 1)
+    handsOverrideActive = true
 end)
 
 hook.Add("PostDrawPlayerHands", "KirkwareLinux.HandChamsReset", function()
-    if not enabled("chams_hands_enable") then
+    if not handsOverrideActive then
         return
     end
-    render.MaterialOverride(nil)
-    render.SetColorModulation(1, 1, 1)
+    resetRenderOverride()
+    handsOverrideActive = false
 end)
 
 hook.Add("PostEntityFireBullets", "KirkwareLinux.BulletTracerCapture", function(entity, data)
@@ -126,6 +137,12 @@ hook.Add("PostDrawTranslucentRenderables", "KirkwareLinux.BulletTracerDraw",
         end
     end
     tracers = nextTracers
+end)
+
+hook.Add("ShutDown", "KirkwareLinux.ViewmodelRenderReset", function()
+    if weaponOverrideActive or handsOverrideActive then
+        resetRenderOverride()
+    end
 end)
 
 print("[kirkware linux] viewmodel/tracer modules loaded")
