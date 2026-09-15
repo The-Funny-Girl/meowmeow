@@ -206,6 +206,8 @@ class ControlUi:
         self._load_ui_config()
         self._create_widgets()
         self._load_profile(silent=True)
+        if self.live_export_var.get():
+            self.export_profile(silent=True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _configure_style(self) -> None:
@@ -437,11 +439,11 @@ class ControlUi:
         if not silent:
             self.status_var.set(f"Saved {LOCAL_PROFILE_PATH}")
 
-    def _load_profile(self, silent: bool = False, path: Path = LOCAL_PROFILE_PATH) -> None:
+    def _load_profile(self, silent: bool = False, path: Path = LOCAL_PROFILE_PATH) -> bool:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
-            return
+            return False
         modules, convars = parse_profile(text)
         for name, value in modules.items():
             if name in self.module_vars:
@@ -452,15 +454,16 @@ class ControlUi:
         self._sync_convar_widgets()
         if not silent:
             self.status_var.set(f"Loaded {path}")
+        return True
 
     def load_profile(self) -> None:
-        self._load_profile(silent=False)
+        if self._load_profile(silent=False):
+            self.feature_changed()
 
     def import_profile(self) -> None:
         chosen = filedialog.askopenfilename(initialdir=str(Path(self.export_path_var.get()).expanduser().parent),
                                             filetypes=[("Kirkware profile", "*.conf"), ("All files", "*")])
-        if chosen:
-            self._load_profile(path=Path(chosen), silent=False)
+        if chosen and self._load_profile(path=Path(chosen), silent=False):
             self.feature_changed()
 
     def export_profile(self, silent: bool = False) -> None:
