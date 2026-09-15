@@ -1,17 +1,19 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
-#include <cstdio>
+#include <chrono>
+#include <csignal>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/un.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -21,7 +23,7 @@ namespace {
 
 struct Target {
     pid_t pid {};
-    fs::path socket_path;
+    fs::path control_dir;
 };
 
 std::string target_prefix() {
@@ -29,9 +31,9 @@ std::string target_prefix() {
            std::to_string(static_cast<unsigned long>(::getuid())) + "-";
 }
 
-fs::path socket_path_for(pid_t pid) {
+fs::path control_dir_for(pid_t pid) {
     return fs::path("/tmp") /
-           (target_prefix() + std::to_string(static_cast<long>(pid)) + ".sock");
+           (target_prefix() + std::to_string(static_cast<long>(pid)));
 }
 
 fs::path default_module_path() {
@@ -44,20 +46,23 @@ fs::path default_module_path() {
 }
 
 std::optional<Target> target_from_pid(pid_t pid) {
-    const fs::path socket_path = socket_path_for(pid);
+    if (::kill(pid, 0) != 0 && errno != EPERM) {
+        return std::nullopt;
+    }
+
+    const fs::path control_dir = control_dir_for(pid);
     struct stat info {};
-    if (::lstat(socket_path.c_str(), &info) != 0 ||
-        !S_ISSOCK(info.st_mode) ||
+    if (::lstat(control_dir.c_str(), &info) != 0 ||
+        !S_ISDIR(info.st_mode) ||
         info.st_uid != ::getuid()) {
         return std::nullopt;
     }
-    return Target {pid, socket_path};
+    return Target {pid, control_dir};
 }
 
 std::vector<Target> discover_targets() {
     std::vector<Target> targets;
     const std::string prefix = target_prefix();
-    constexpr std::string_view suffix = ".sock";
 
     std::error_code ec;
     for (const fs::directory_entry& entry : fs::directory_iterator("/tmp", ec)) {
@@ -66,20 +71,20 @@ std::vector<Target> discover_targets() {
         }
 
         const std::string name = entry.path().filename().string();
-        if (!name.starts_with(prefix) || !name.ends_with(suffix)) {
+        if (!name.starts_with(prefix)) {
             continue;
         }
 
-        const std::size_t number_begin = prefix.size();
-        const std::size_t number_size = name.size() - prefix.size() - suffix.size();
-        if (number_size == 0) {
+        const std::string_view number(name.data() + prefix.size(), name.size() - prefix.size());
+        if (number.empty()) {
             continue;
         }
 
         long parsed_pid = 0;
-        const std::string_view number(name.data() + number_begin, number_size);
         const auto result = std::from_chars(number.data(), number.data() + number.size(), parsed_pid);
-        if (result.ec != std::errc {} || result.ptr != number.data() + number.size() || parsed_pid <= 0) {
+        if (result.ec != std::errc {} ||
+            result.ptr != number.data() + number.size() ||
+            parsed_pid <= 0) {
             continue;
         }
 
@@ -98,88 +103,110 @@ std::optional<Target> find_target(pid_t pid) {
     return target_from_pid(pid);
 }
 
-bool send_all(int fd, std::string_view text) {
-    std::size_t sent = 0;
-    while (sent < text.size()) {
-        const ssize_t rc = ::send(fd, text.data() + sent, text.size() - sent, MSG_NOSIGNAL);
-        if (rc < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+std::string next_token() {
+    static unsigned long counter = 0;
+    ++counter;
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::to_string(static_cast<long>(::getpid())) + "-" +
+           std::to_string(counter) + "-" + std::to_string(stamp);
+}
+
+bool write_request(const Target& target,
+                   const std::string& token,
+                   const std::string& command,
+                   std::string& error) {
+    const fs::path temp_path = target.control_dir /
+                               ("request." + std::to_string(static_cast<long>(::getpid())) + ".tmp");
+    const fs::path request_path = target.control_dir / "request.txt";
+
+    {
+        std::ofstream output(temp_path, std::ios::trunc);
+        if (!output) {
+            error = "cannot create request file";
             return false;
         }
-        if (rc == 0) {
+        output << token << '\n' << command << '\n';
+        output.flush();
+        if (!output) {
+            error = "cannot write request file";
             return false;
         }
-        sent += static_cast<std::size_t>(rc);
+    }
+
+    if (::chmod(temp_path.c_str(), S_IRUSR | S_IWUSR) != 0) {
+        error = std::string("cannot secure request file: ") + std::strerror(errno);
+        return false;
+    }
+
+    std::error_code rename_ec;
+    fs::rename(temp_path, request_path, rename_ec);
+    if (rename_ec) {
+        error = "cannot publish request file: " + rename_ec.message();
+        return false;
     }
     return true;
 }
 
-bool request(const fs::path& socket_path,
+bool read_matching_response(const Target& target,
+                            const std::string& token,
+                            std::string& response) {
+    const fs::path response_path = target.control_dir / "response.txt";
+    std::ifstream input(response_path);
+    if (!input) {
+        return false;
+    }
+
+    std::string response_token;
+    if (!std::getline(input, response_token) || response_token != token) {
+        return false;
+    }
+
+    std::ostringstream payload;
+    payload << input.rdbuf();
+    response = payload.str();
+    input.close();
+
+    std::error_code remove_ec;
+    fs::remove(response_path, remove_ec);
+    return true;
+}
+
+bool request(const Target& target,
              const std::string& command,
              std::string& response,
              std::string& error) {
-    const std::string socket_string = socket_path.string();
-    sockaddr_un address {};
-    if (socket_string.size() >= sizeof(address.sun_path)) {
-        error = "socket path is too long";
+    const std::string token = next_token();
+    const fs::path response_path = target.control_dir / "response.txt";
+    std::error_code remove_ec;
+    fs::remove(response_path, remove_ec);
+
+    if (!write_request(target, token, command, error)) {
         return false;
     }
 
-    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) {
-        error = std::string("socket: ") + std::strerror(errno);
+    if (::kill(target.pid, SIGUSR1) != 0) {
+        error = std::string("cannot signal target: ") + std::strerror(errno);
         return false;
     }
 
-    address.sun_family = AF_UNIX;
-    std::snprintf(address.sun_path, sizeof(address.sun_path), "%s", socket_string.c_str());
-
-    if (::connect(fd,
-                  reinterpret_cast<const sockaddr*>(&address),
-                  static_cast<socklen_t>(sizeof(address))) != 0) {
-        error = std::string("connect: ") + std::strerror(errno);
-        ::close(fd);
-        return false;
-    }
-
-    if (!send_all(fd, command + "\n")) {
-        error = std::string("send: ") + std::strerror(errno);
-        ::close(fd);
-        return false;
-    }
-
-    response.clear();
-    char buffer[1024];
-    while (true) {
-        const ssize_t rc = ::recv(fd, buffer, sizeof(buffer), 0);
-        if (rc < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            error = std::string("recv: ") + std::strerror(errno);
-            ::close(fd);
+    for (int attempt = 0; attempt < 150; ++attempt) {
+        if (read_matching_response(target, token, response)) {
+            return true;
+        }
+        if (::kill(target.pid, 0) != 0 && errno != EPERM) {
+            error = "target exited before replying";
             return false;
         }
-        if (rc == 0) {
-            break;
-        }
-        response.append(buffer, static_cast<std::size_t>(rc));
-        if (response.size() > 16384) {
-            error = "response exceeded safety limit";
-            ::close(fd);
-            return false;
-        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
-    ::close(fd);
-    return true;
+    error = "target did not reply within 3 seconds";
+    return false;
 }
 
 bool ping_target(const Target& target, std::string& error) {
     std::string response;
-    if (!request(target.socket_path, "PING", response, error)) {
+    if (!request(target, "PING", response, error)) {
         return false;
     }
     if (response != "OK pong\n") {
@@ -199,14 +226,16 @@ void print_targets() {
     std::cout << "Running cooperative load targets:\n";
     for (const Target& target : targets) {
         std::cout << "  PID " << static_cast<long>(target.pid)
-                  << "  " << target.socket_path.string() << '\n';
+                  << "  " << target.control_dir.string() << '\n';
     }
 }
 
 std::optional<pid_t> parse_pid(std::string_view text) {
     long value = 0;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (result.ec != std::errc {} || result.ptr != text.data() + text.size() || value <= 0) {
+    if (result.ec != std::errc {} ||
+        result.ptr != text.data() + text.size() ||
+        value <= 0) {
         return std::nullopt;
     }
     return static_cast<pid_t>(value);
@@ -234,7 +263,9 @@ std::optional<Target> choose_target_interactively() {
 
     unsigned long selection = 0;
     const auto result = std::from_chars(input.data(), input.data() + input.size(), selection);
-    if (result.ec != std::errc {} || result.ptr != input.data() + input.size() || selection == 0) {
+    if (result.ec != std::errc {} ||
+        result.ptr != input.data() + input.size() ||
+        selection == 0) {
         return std::nullopt;
     }
     if (selection > targets.size()) {
@@ -307,7 +338,7 @@ int interactive_target(const Target& selected) {
 
         std::string response;
         std::string error;
-        if (!request(selected.socket_path, command, response, error)) {
+        if (!request(selected, command, response, error)) {
             std::cerr << "error: " << error << '\n';
             return 1;
         }
@@ -336,8 +367,8 @@ void print_help() {
         << "  kirkware-load-client --target PID --load /absolute/module.so\n"
         << "  kirkware-load-client --target PID --unload\n"
         << "  kirkware-load-client --target PID --quit\n\n"
-        << "This client never writes to another process. It asks a matching same-user\n"
-        << "kirkware-load-target process to load the selected shared object itself.\n";
+        << "Transport: private per-PID control files plus SIGUSR1. No Unix socket is used.\n"
+        << "The selected process must still be a cooperating kirkware-load-target process.\n";
 }
 
 }  // namespace
@@ -401,8 +432,9 @@ int main(int argc, char** argv) {
 
     const std::optional<Target> target = find_target(*target_pid);
     if (!target.has_value()) {
-        std::cerr << "error: cooperative target PID " << static_cast<long>(*target_pid)
-                  << " was not found at " << socket_path_for(*target_pid).string() << '\n';
+        std::cerr << "error: PID " << static_cast<long>(*target_pid)
+                  << " is not a cooperative load target at "
+                  << control_dir_for(*target_pid).string() << '\n';
         return 1;
     }
 
@@ -412,7 +444,7 @@ int main(int argc, char** argv) {
 
     std::string response;
     std::string error;
-    if (!request(target->socket_path, command, response, error)) {
+    if (!request(*target, command, response, error)) {
         std::cerr << "error: " << error << '\n';
         return 1;
     }
