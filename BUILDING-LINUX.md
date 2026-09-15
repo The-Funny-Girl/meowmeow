@@ -21,7 +21,34 @@ sudo apt install build-essential cmake ninja-build pkg-config \
   libsdl2-dev libsdl2-image-dev libgl1-mesa-dev libfreetype6-dev
 ```
 
-## Build and test
+## Quick build script
+
+For normal development, use the executable helper at the repository root:
+
+```sh
+./build-linux.sh
+```
+
+It configures a Release build, compiles with all available CPU cores, and runs the test suite. To compile and immediately open the graphical UI:
+
+```sh
+./build-linux.sh --run
+```
+
+Useful variants:
+
+```sh
+./build-linux.sh --clean --run      # clean rebuild, test, launch UI
+./build-linux.sh --install-deps     # install Mint/Ubuntu dependencies, then build
+./build-linux.sh --sanitize         # Debug ASan/UBSan build with warnings as errors
+./build-linux.sh --package          # build/test and create TGZ + DEB packages
+./build-linux.sh --no-ui            # CLI/component-only build
+./build-linux.sh --help             # all supported options
+```
+
+The helper may be run from any working directory because it resolves the repository root from its own location. It reuses an existing CMake generator safely, prefers Ninja for a fresh build when available, validates required UI dependencies, and refuses unsafe clean paths.
+
+## Build and test manually
 
 ```sh
 cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -148,7 +175,7 @@ sudo apt install ./packages/kirkware-linux_1.5.0_amd64.deb
 
 The Debian package uses CPack's shared-library dependency scan to record the runtime libraries required by the compiled binaries and component.
 
-GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, renders the UI under Xvfb/llvmpipe, creates both package formats, validates Debian metadata, publishes SHA-256 checksums, and uploads the CLI, UI, component, `.tar.gz`, and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
+GitHub Actions builds and tests with GCC and Clang, performs an install smoke test, renders the UI under Xvfb/llvmpipe, validates the executable quick-build helper, creates both package formats, validates Debian metadata, publishes SHA-256 checksums, and uploads the CLI, UI, component, `.tar.gz`, and `.deb` files as workflow artifacts. A separate sanitizer job runs Clang with ASan/UBSan.
 
 ## Scope of the current port
 
