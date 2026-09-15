@@ -23,6 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate Linux build helper
+        run: |
+          test -x build-linux.sh
+          bash -n build-linux.sh
+          ./build-linux.sh --help >/dev/null
+
       - name: Verify preserved Windows runtime is unchanged
         shell: bash
         run: |
