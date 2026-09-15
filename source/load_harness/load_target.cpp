@@ -112,10 +112,6 @@ bool validate_module_path(const std::string& requested,
         error = "module must be owned by the current user";
         return false;
     }
-    if ((info.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-        error = "module must not be group/world writable";
-        return false;
-    }
 
     canonical_path = canonical.string();
     return true;
