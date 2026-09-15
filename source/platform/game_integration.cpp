@@ -176,6 +176,13 @@ bool SpawnDetached(const char* program,
                    const std::vector<std::string>& arguments,
                    std::string* error)
 {
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(const_cast<char*>(program));
+    for (const std::string& argument : arguments)
+        argv.push_back(const_cast<char*>(argument.c_str()));
+    argv.push_back(nullptr);
+
     int exec_status[2] = {-1, -1};
     if (::pipe(exec_status) != 0) {
         if (error)
@@ -219,12 +226,6 @@ bool SpawnDetached(const char* program,
         if (grandchild > 0)
             _exit(0);
 
-        std::vector<char*> argv;
-        argv.reserve(arguments.size() + 2);
-        argv.push_back(const_cast<char*>(program));
-        for (const std::string& argument : arguments)
-            argv.push_back(const_cast<char*>(argument.c_str()));
-        argv.push_back(nullptr);
         ::execvp(program, argv.data());
         ReportChildError(exec_status[1], errno);
         _exit(127);
