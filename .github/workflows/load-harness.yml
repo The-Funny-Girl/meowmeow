@@ -1,0 +1,39 @@
+name: Linux load harness
+
+on:
+  push:
+    branches: [linux-load-harness]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-harness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate helper
+        run: |
+          test -x build-load-harness.sh
+          bash -n build-load-harness.sh
+          ./build-load-harness.sh --help >/dev/null
+
+      - name: Build and test
+        run: ./build-load-harness.sh
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and test with ASan/UBSan
+        run: ./build-load-harness.sh --sanitize
