@@ -20,11 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate helper
+      - name: Validate helper scripts
         run: |
           test -x build-load-harness.sh
+          test -x build-linux.sh
+          test -x update-kirkware.sh
           bash -n build-load-harness.sh
+          bash -n build-linux.sh
+          bash -n update-kirkware.sh
           ./build-load-harness.sh --help >/dev/null
+          ./build-linux.sh --help >/dev/null
+          ./update-kirkware.sh --help >/dev/null
 
       - name: Build and test
         run: ./build-load-harness.sh
