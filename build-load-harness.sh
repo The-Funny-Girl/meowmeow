@@ -40,6 +40,7 @@ fi
 banner() {
     printf '\n%s%sKIRKWARE LINUX LOAD HARNESS%s\n' "$BOLD" "$ACCENT" "$RESET"
     printf '%sCooperative .so loading for a process we control%s\n' "$DIM" "$RESET"
+    printf '%sNo Unix socket: private control files + SIGUSR1%s\n' "$DIM" "$RESET"
     printf '%s\n' '-----------------------------------------------'
 }
 
@@ -56,13 +57,21 @@ Options:
   --no-tests           Skip CTest
   --target             Build, then run the cooperative target
   --client             Build, ensure one managed target is running, then open loader UI
-  --pid N              Build, then open loader UI against an existing PID (skips managed target)
+  --pid N              Build, then open loader UI against an existing PID
   --demo               Build, start a temporary target, then open loader UI
   --self-test          Build and run the direct dlopen/dlclose smoke test
   --build-dir PATH     Override build directory
   --jobs N             Parallel build jobs
   -h, --help           Show this help
+
+The selected PID must still be a cooperating kirkware-load-target process.
+Transport uses a private per-PID control directory plus SIGUSR1; no socket is used.
 EOF
+}
+
+control_dir_for_pid() {
+    local pid="$1"
+    printf '/tmp/kirkware-load-target-%s-%s\n' "$(id -u)" "$pid"
 }
 
 resolve_jobs() {
@@ -125,13 +134,15 @@ managed_target_pid() {
     read -r pid < "$MANAGED_PID_FILE" || return 1
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
 
-    local socket_path="/tmp/kirkware-load-target-$(id -u)-${pid}.sock"
-    if kill -0 "$pid" 2>/dev/null && [[ -S "$socket_path" ]]; then
+    local control_dir
+    control_dir="$(control_dir_for_pid "$pid")"
+    if kill -0 "$pid" 2>/dev/null && [[ -d "$control_dir" ]]; then
         printf '%s\n' "$pid"
         return 0
     fi
 
-    rm -f -- "$MANAGED_PID_FILE" "$socket_path"
+    rm -f -- "$MANAGED_PID_FILE"
+    rm -rf -- "$control_dir"
     return 1
 }
 
@@ -148,27 +159,31 @@ start_managed_target() {
     local target_pid=$!
     printf '%s\n' "$target_pid" > "$MANAGED_PID_FILE"
 
-    local socket_path="/tmp/kirkware-load-target-$(id -u)-${target_pid}.sock"
+    local control_dir
+    control_dir="$(control_dir_for_pid "$target_pid")"
     for _ in {1..80}; do
         if ! kill -0 "$target_pid" 2>/dev/null; then
             printf 'Managed target exited during startup.\n' >&2
             [[ -f "$MANAGED_LOG_FILE" ]] && cat "$MANAGED_LOG_FILE" >&2
-            rm -f -- "$MANAGED_PID_FILE" "$socket_path"
+            rm -f -- "$MANAGED_PID_FILE"
+            rm -rf -- "$control_dir"
             return 1
         fi
-        if [[ -S "$socket_path" ]]; then
+        if [[ -d "$control_dir" ]]; then
             printf '%sManaged target ready%s\n' "$GOOD" "$RESET"
-            printf '  PID:    %s\n' "$target_pid"
-            printf '  Socket: %s\n' "$socket_path"
-            printf '  Log:    %s\n' "$MANAGED_LOG_FILE"
+            printf '  PID:     %s\n' "$target_pid"
+            printf '  Control: %s\n' "$control_dir"
+            printf '  Signal:  SIGUSR1\n'
+            printf '  Log:     %s\n' "$MANAGED_LOG_FILE"
             return 0
         fi
         sleep 0.05
     done
 
     kill "$target_pid" 2>/dev/null || true
-    rm -f -- "$MANAGED_PID_FILE" "$socket_path"
-    fail "managed target socket did not appear"
+    rm -f -- "$MANAGED_PID_FILE"
+    rm -rf -- "$control_dir"
+    fail "managed target control directory did not appear"
 }
 
 run_target() {
@@ -192,10 +207,12 @@ run_client_for_pid() {
     kill -0 "$pid" 2>/dev/null || \
         fail "no process with PID $pid, or you lack permission to signal it"
 
-    local socket_path="/tmp/kirkware-load-target-$(id -u)-${pid}.sock"
-    if [[ ! -S "$socket_path" ]]; then
-        printf '%sNote:%s no cooperative target socket at %s\n' "$DIM" "$RESET" "$socket_path" >&2
-        printf '%sThe client will only load into a process that speaks its loader protocol.%s\n' \
+    local control_dir
+    control_dir="$(control_dir_for_pid "$pid")"
+    if [[ ! -d "$control_dir" ]]; then
+        printf '%sNote:%s no cooperative control directory at %s\n' \
+            "$DIM" "$RESET" "$control_dir" >&2
+        printf '%sThis PID is running, but it is not currently a cooperating load target.%s\n' \
             "$DIM" "$RESET" >&2
     fi
 
@@ -212,22 +229,23 @@ run_demo() {
     printf 'Starting temporary controlled target...\n'
     "$BUILD_DIR/kirkware-load-target" &
     local target_pid=$!
-    local socket_path="/tmp/kirkware-load-target-$(id -u)-${target_pid}.sock"
+    local control_dir
+    control_dir="$(control_dir_for_pid "$target_pid")"
 
     cleanup_demo() {
         if kill -0 "$target_pid" 2>/dev/null; then
             kill "$target_pid" 2>/dev/null || true
             wait "$target_pid" 2>/dev/null || true
         fi
-        rm -f -- "$socket_path"
+        rm -rf -- "$control_dir"
     }
     trap cleanup_demo EXIT INT TERM
 
     for _ in {1..50}; do
-        [[ -S "$socket_path" ]] && break
+        [[ -d "$control_dir" ]] && break
         sleep 0.05
     done
-    [[ -S "$socket_path" ]] || fail "target socket did not appear"
+    [[ -d "$control_dir" ]] || fail "target control directory did not appear"
 
     printf '\nTemporary target PID %s is ready. Opening loader directly...\n' "$target_pid"
     "$BUILD_DIR/kirkware-load-client" --target "$target_pid"
