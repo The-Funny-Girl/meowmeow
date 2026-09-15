@@ -507,7 +507,8 @@ void RenderDrawData(ImDrawData* draw_data)
                 continue;
 
             glScissor(static_cast<int>(clip_min.x),
-                      static_cast<int>(framebuffer_height - clip_max.y),
+                      static_cast<int>(
+                          static_cast<float>(framebuffer_height) - clip_max.y),
                       static_cast<int>(clip_max.x - clip_min.x),
                       static_cast<int>(clip_max.y - clip_min.y));
             const GLuint texture = static_cast<GLuint>(reinterpret_cast<intptr_t>(
@@ -528,7 +529,7 @@ void RenderDrawData(ImDrawData* draw_data)
     glPopMatrix();
     glPopClientAttrib();
     glPopAttrib();
-    glMatrixMode(last_matrix_mode);
+    glMatrixMode(static_cast<GLenum>(last_matrix_mode));
 }
 
 void ApplyWindowSizeAroundCenter(SDL_Window* window, int width, int height)
