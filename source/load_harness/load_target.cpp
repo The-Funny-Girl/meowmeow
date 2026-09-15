@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
@@ -19,8 +20,22 @@ namespace {
 void* g_module_handle = nullptr;
 std::string g_module_path;
 
+fs::path control_root() {
+    const char* configured = std::getenv("KIRKWARE_LOAD_CONTROL_ROOT");
+    if (configured == nullptr || configured[0] == '\0') {
+        return fs::path("/tmp");
+    }
+
+    std::error_code ec;
+    fs::path root = fs::absolute(fs::path(configured), ec);
+    if (ec) {
+        return fs::path(configured).lexically_normal();
+    }
+    return root.lexically_normal();
+}
+
 fs::path control_dir_for(pid_t pid) {
-    return fs::path("/tmp") /
+    return control_root() /
            ("kirkware-load-target-" +
             std::to_string(static_cast<unsigned long>(::getuid())) + "-" +
             std::to_string(static_cast<long>(pid)));
@@ -118,6 +133,21 @@ std::string status_response() {
 }
 
 bool prepare_control_dir(const fs::path& control_dir, std::string& error) {
+    const fs::path root = control_dir.parent_path();
+    std::error_code root_ec;
+    if (!fs::exists(root, root_ec)) {
+        const mode_t previous_umask = ::umask(0077);
+        fs::create_directories(root, root_ec);
+        ::umask(previous_umask);
+        if (root_ec) {
+            error = "cannot create control root: " + root_ec.message();
+            return false;
+        }
+    } else if (root_ec || !fs::is_directory(root, root_ec)) {
+        error = "control root is not a directory";
+        return false;
+    }
+
     struct stat info {};
     if (::lstat(control_dir.c_str(), &info) == 0) {
         if (!S_ISDIR(info.st_mode) || info.st_uid != ::getuid()) {
@@ -263,7 +293,8 @@ void print_help() {
         << "Usage: kirkware-load-target [--self-test /absolute/path/module.so]\n\n"
         << "Runs a cooperative Linux shared-object load target owned by the current user.\n"
         << "The target receives same-user requests through a private control directory\n"
-        << "and SIGUSR1, then performs dlopen() itself. No Unix socket is used.\n";
+        << "and SIGUSR1, then performs dlopen() itself. No Unix socket is used.\n"
+        << "Set KIRKWARE_LOAD_CONTROL_ROOT to choose the parent folder (default: /tmp).\n";
 }
 
 }  // namespace
@@ -304,6 +335,7 @@ int main(int argc, char** argv) {
 
     std::cout << "Kirkware cooperative load target\n"
               << "  PID:     " << static_cast<long>(pid) << '\n'
+              << "  Root:    " << control_root().string() << '\n'
               << "  Control: " << control_dir.string() << '\n'
               << "  Signal:  SIGUSR1\n"
               << "Waiting for same-user load requests...\n";
