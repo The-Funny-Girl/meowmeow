@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -8,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -31,6 +33,7 @@ std::vector<Target> discover_targets() {
     std::vector<Target> targets;
     const std::string prefix = target_prefix();
     constexpr std::string_view suffix = ".sock";
+    const uid_t current_uid = ::getuid();
 
     std::error_code ec;
     for (const fs::directory_entry& entry : fs::directory_iterator("/tmp", ec)) {
@@ -40,6 +43,13 @@ std::vector<Target> discover_targets() {
 
         const std::string name = entry.path().filename().string();
         if (!name.starts_with(prefix) || !name.ends_with(suffix)) {
+            continue;
+        }
+
+        struct stat info {};
+        if (::lstat(entry.path().c_str(), &info) != 0 ||
+            !S_ISSOCK(info.st_mode) ||
+            info.st_uid != current_uid) {
             continue;
         }
 
