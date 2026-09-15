@@ -24,8 +24,11 @@ By default it installs the local addon, disables Workshop content for isolation,
 and starts a private/local Sandbox session on gm_construct with client Lua allowed.
 
 Modes:
-  --local              Start a local/private Sandbox map (default)
-  --menu               Stop at the GMod main menu; connect manually later
+  --local              Start a local/private Sandbox map (default); this is the
+                       mode that initializes and exercises the client addon
+  --menu               Stop at the GMod main menu without joining/creating a server;
+                       useful for isolated startup checks, but the client addon is
+                       not considered initialized until a client game state exists
 
 Options:
   --map NAME           Local-test map (default: gm_construct)
@@ -180,8 +183,10 @@ printf 'Console log:%s\n' " $CONSOLE_LOG"
 if [[ "$MODE" == "local" ]]; then
     printf 'Map:        %s\n' "$MAP_NAME"
     printf 'Client Lua: allowed by the private/listen server\n'
+    printf 'Live test:  client addon should initialize in this mode\n'
 else
     printf 'Network:    no server is joined automatically\n'
+    printf 'Lua state:  main-menu startup only; run --local for live feature verification\n'
 fi
 
 printf '\nLaunch command:\n  '
@@ -193,7 +198,12 @@ if (( DRY_RUN )); then
     exit 0
 fi
 
-printf 'After the game reaches the map/menu, verify initialization with:\n'
-printf '  %q\n\n' "$ROOT_DIR/verify-gmod-live-test.sh --game-dir $GAME_DIR"
+if [[ "$MODE" == "local" ]]; then
+    printf 'After the game reaches the map, verify initialization with:\n'
+    printf '  %q\n\n' "$ROOT_DIR/verify-gmod-live-test.sh --game-dir $GAME_DIR"
+else
+    printf 'Main-menu mode does not prove the client addon initialized.\n'
+    printf 'Use --local when you want to verify Aim/ESP/Misc behavior in the real client.\n\n'
+fi
 
 exec "${steam_cmd[@]}" "${launch_args[@]}"
