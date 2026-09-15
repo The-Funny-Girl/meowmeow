@@ -15,6 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -123,9 +124,11 @@ def default_export_path() -> Path:
         Path.home() / ".local/share/Steam/steamapps/common/GarrysMod/garrysmod/data/kirkware_linux/desktop_profile.conf",
         Path.home() / ".steam/steam/steamapps/common/GarrysMod/garrysmod/data/kirkware_linux/desktop_profile.conf",
         Path.home() / ".steam/debian-installation/steamapps/common/GarrysMod/garrysmod/data/kirkware_linux/desktop_profile.conf",
+        Path.home() / ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/GarrysMod/garrysmod/data/kirkware_linux/desktop_profile.conf",
+        Path.home() / "snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod/data/kirkware_linux/desktop_profile.conf",
     ]
     for path in candidates:
-        if path.parent.parent.exists():
+        if len(path.parents) > 2 and path.parents[2].exists():
             return path
     return candidates[0]
 
@@ -190,6 +193,8 @@ class ControlUi:
 
         self.module_vars: dict[str, tk.BooleanVar] = {}
         self.convar_vars: dict[str, tk.StringVar] = {}
+        self.bool_convar_ui_vars: dict[str, tk.BooleanVar] = {}
+        self.sort_display_vars: dict[str, tk.StringVar] = {}
         self.status_var = tk.StringVar(value="Ready")
         self.pid_var = tk.StringVar()
         self.control_root_var = tk.StringVar(value="/tmp")
@@ -201,6 +206,8 @@ class ControlUi:
         self._load_ui_config()
         self._create_widgets()
         self._load_profile(silent=True)
+        if self.live_export_var.get():
+            self.export_profile(silent=True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _configure_style(self) -> None:
@@ -325,12 +332,12 @@ class ControlUi:
         checks.pack(fill="x", padx=14, pady=(0, 12))
         for index, (name, label, default) in enumerate(BOOL_CONVARS):
             var = tk.BooleanVar(value=default)
+            self.bool_convar_ui_vars[name] = var
             self.convar_vars[name] = tk.StringVar(value="1" if default else "0")
-            bool_var = var
-            def update_bool(n=name, v=bool_var) -> None:
+            def update_bool(n=name, v=var) -> None:
                 self.convar_vars[n].set("1" if v.get() else "0")
                 self.feature_changed()
-            ttk.Checkbutton(checks, text=label, variable=bool_var, command=update_bool).grid(row=0, column=index, sticky="w", padx=10, pady=6)
+            ttk.Checkbutton(checks, text=label, variable=var, command=update_bool).grid(row=0, column=index, sticky="w", padx=10, pady=6)
 
         tuning_box = ttk.LabelFrame(parent, text="Tuning")
         tuning_box.pack(fill="x", padx=14, pady=(0, 12))
@@ -347,6 +354,7 @@ class ControlUi:
         sort_box.pack(fill="x", padx=14, pady=(0, 14))
         for row, (name, label, default) in enumerate(SORT_CONVARS):
             display = tk.StringVar(value=default)
+            self.sort_display_vars[name] = display
             self.convar_vars[name] = tk.StringVar(value=SORT_TO_VALUE[default])
             ttk.Label(sort_box, text=label).grid(row=row, column=0, sticky="w", padx=10, pady=5)
             combo = ttk.Combobox(sort_box, textvariable=display, values=list(SORT_TO_VALUE), state="readonly", width=16)
@@ -382,16 +390,33 @@ class ControlUi:
         self.convar_vars[name].set(SORT_TO_VALUE.get(display.get(), "0"))
         self.feature_changed()
 
+    def _sync_convar_widgets(self) -> None:
+        for name, ui_var in self.bool_convar_ui_vars.items():
+            stored = self.convar_vars.get(name)
+            value = stored.get().strip().lower() if stored is not None else "0"
+            ui_var.set(value in {"1", "true"})
+        for name, display in self.sort_display_vars.items():
+            stored = self.convar_vars.get(name)
+            value = stored.get().strip() if stored is not None else "0"
+            display.set(VALUE_TO_SORT.get(value, "FOV"))
+
     def _browse_file(self, variable: tk.StringVar) -> None:
         initial = Path(variable.get()).expanduser()
-        chosen = filedialog.asksaveasfilename(initialdir=str(initial.parent if initial.parent.exists() else Path.home()),
-                                              initialfile=initial.name)
+        initial_dir = str(initial.parent if initial.parent.exists() else Path.home())
+        if variable is self.module_path_var:
+            chosen = filedialog.askopenfilename(
+                initialdir=initial_dir,
+                filetypes=[("Shared objects", "*.so"), ("All files", "*")],
+            )
+        else:
+            chosen = filedialog.asksaveasfilename(initialdir=initial_dir, initialfile=initial.name)
         if chosen:
             variable.set(chosen)
             self._save_ui_config()
 
     def _browse_dir(self, variable: tk.StringVar) -> None:
-        chosen = filedialog.askdirectory(initialdir=str(Path(variable.get()).expanduser()))
+        initial = Path(variable.get()).expanduser()
+        chosen = filedialog.askdirectory(initialdir=str(initial if initial.exists() else Path.home()))
         if chosen:
             variable.set(chosen)
             self._save_ui_config()
@@ -414,11 +439,11 @@ class ControlUi:
         if not silent:
             self.status_var.set(f"Saved {LOCAL_PROFILE_PATH}")
 
-    def _load_profile(self, silent: bool = False, path: Path = LOCAL_PROFILE_PATH) -> None:
+    def _load_profile(self, silent: bool = False, path: Path = LOCAL_PROFILE_PATH) -> bool:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
-            return
+            return False
         modules, convars = parse_profile(text)
         for name, value in modules.items():
             if name in self.module_vars:
@@ -426,17 +451,19 @@ class ControlUi:
         for name, value in convars.items():
             if name in self.convar_vars:
                 self.convar_vars[name].set(value)
+        self._sync_convar_widgets()
         if not silent:
             self.status_var.set(f"Loaded {path}")
+        return True
 
     def load_profile(self) -> None:
-        self._load_profile(silent=False)
+        if self._load_profile(silent=False):
+            self.feature_changed()
 
     def import_profile(self) -> None:
         chosen = filedialog.askopenfilename(initialdir=str(Path(self.export_path_var.get()).expanduser().parent),
                                             filetypes=[("Kirkware profile", "*.conf"), ("All files", "*")])
-        if chosen:
-            self._load_profile(path=Path(chosen), silent=False)
+        if chosen and self._load_profile(path=Path(chosen), silent=False):
             self.feature_changed()
 
     def export_profile(self, silent: bool = False) -> None:
@@ -466,6 +493,7 @@ class ControlUi:
             self.convar_vars[name].set("1" if default else "0")
         for name, _label, default in SORT_CONVARS:
             self.convar_vars[name].set(SORT_TO_VALUE[default])
+        self._sync_convar_widgets()
         self.feature_changed()
         self.status_var.set("Defaults restored")
 
@@ -477,7 +505,8 @@ class ControlUi:
 
     def _loader_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        env["KIRKWARE_LOAD_CONTROL_ROOT"] = str(Path(self.control_root_var.get()).expanduser())
+        control_root = Path(self.control_root_var.get().strip() or "/tmp").expanduser()
+        env["KIRKWARE_LOAD_CONTROL_ROOT"] = str(control_root)
         return env
 
     def _log(self, text: str) -> None:
@@ -505,8 +534,12 @@ class ControlUi:
         if action == "status":
             command += ["--status"]
         elif action == "load":
-            module = str(Path(self.module_path_var.get()).expanduser().resolve())
-            command += ["--load", module]
+            module_path = Path(self.module_path_var.get()).expanduser()
+            if not module_path.is_file():
+                self._log(f"Module does not exist: {module_path}\n")
+                self.status_var.set("Loader command failed")
+                return
+            command += ["--load", str(module_path.resolve())]
         elif action == "unload":
             command += ["--unload"]
         elif action == "quit":
@@ -530,7 +563,16 @@ class ControlUi:
                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.pid_var.set(str(self.test_target.pid))
         self._save_ui_config()
-        self._log(f"Started cooperative test target PID {self.test_target.pid}.\n")
+
+        root = Path(self.control_root_var.get().strip() or "/tmp").expanduser()
+        control_dir = root / f"kirkware-load-target-{os.getuid()}-{self.test_target.pid}"
+        deadline = time.monotonic() + 1.0
+        while self.test_target.poll() is None and not control_dir.is_dir() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if control_dir.is_dir():
+            self._log(f"Started cooperative test target PID {self.test_target.pid}.\n")
+        else:
+            self._log(f"Started PID {self.test_target.pid}, but its control directory is not ready yet: {control_dir}\n")
 
     def close(self) -> None:
         try:

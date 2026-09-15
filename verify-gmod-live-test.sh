@@ -77,6 +77,7 @@ checks=(
     "player visuals|[kirkware linux] player visual parity loaded"
     "viewmodel/tracer|[kirkware linux] viewmodel/tracer modules loaded"
     "desktop profile|[kirkware linux] desktop profile bridge loaded"
+    "dynamic module setter|[kirkware linux] dynamic module setter loaded"
 )
 
 passed=0
@@ -94,10 +95,10 @@ for entry in "${checks[@]}"; do
 done
 
 printf '\nRecent Kirkware console lines:\n'
-grep -F -- '[kirkware linux]' "$LOG" | tail -n 30 || true
+grep -F -- '[kirkware linux]' "$LOG" | tail -n 40 || true
 
 printf '\nPotential Lua errors mentioning Kirkware:\n'
-if grep -iE 'kirkware.*(error|failed)|(error|failed).*kirkware' "$LOG" | tail -n 20; then
+if grep -iE 'kirkware.*(error|failed)|(error|failed).*kirkware' "$LOG" | tail -n 30; then
     true
 else
     printf '  none found\n'
