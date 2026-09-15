@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$ROOT_DIR/source/gmod_addon/kirkware_linux"
 GAME_DIR="${GMOD_DIR:-}"
+DISCOVERY_BIN="${KIRKWARE_DISCOVERY_BIN:-$ROOT_DIR/build-linux/kirkware}"
 UNINSTALL=0
 
 usage() {
@@ -50,9 +51,9 @@ done
 find_game_dir() {
     local candidate=""
 
-    if [[ -x "$ROOT_DIR/build-linux/kirkware" ]]; then
+    if [[ -x "$DISCOVERY_BIN" ]]; then
         candidate="$(
-            "$ROOT_DIR/build-linux/kirkware" --game-info --no-workspace 2>/dev/null |
+            "$DISCOVERY_BIN" --game-info --no-workspace 2>/dev/null |
                 sed -n 's/^install-root=//p' |
                 head -n 1
         )"
