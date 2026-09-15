@@ -731,6 +731,14 @@ int main(int argc, char** argv)
         if (done)
             break;
 
+        const auto now = std::chrono::steady_clock::now();
+        const float delta = std::chrono::duration<float>(now - previous).count();
+        previous = now;
+        io.DeltaTime = (std::max)(delta, 1.0f / 1000.0f);
+
+        ui.Update(delta);
+        ApplyWindowSizeAroundCenter(window, ui.ClientWidth(), ui.ClientHeight());
+
         int window_width = 0;
         int window_height = 0;
         int drawable_width = 0;
@@ -748,17 +756,9 @@ int main(int argc, char** argv)
             };
         }
 
-        const auto now = std::chrono::steady_clock::now();
-        const float delta = std::chrono::duration<float>(now - previous).count();
-        previous = now;
-        io.DeltaTime = (std::max)(delta, 1.0f / 1000.0f);
-
         ImGui::NewFrame();
-        ui.Update(delta);
         ui.Render();
         ImGui::Render();
-
-        ApplyWindowSizeAroundCenter(window, ui.ClientWidth(), ui.ClientHeight());
 
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
