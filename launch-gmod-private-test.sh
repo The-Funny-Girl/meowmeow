@@ -199,8 +199,9 @@ if (( DRY_RUN )); then
 fi
 
 if [[ "$MODE" == "local" ]]; then
-    printf 'After the game reaches the map, verify initialization with:\n'
-    printf '  %q\n\n' "$ROOT_DIR/verify-gmod-live-test.sh --game-dir $GAME_DIR"
+    printf 'After the game reaches the map, verify initialization with:\n  '
+    printf '%q ' "$ROOT_DIR/verify-gmod-live-test.sh" --game-dir "$GAME_DIR"
+    printf '\n\n'
 else
     printf 'Main-menu mode does not prove the client addon initialized.\n'
     printf 'Use --local when you want to verify Aim/ESP/Misc behavior in the real client.\n\n'
