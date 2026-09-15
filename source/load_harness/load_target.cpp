@@ -1,86 +1,29 @@
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/un.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
 
 namespace {
 
-constexpr std::size_t kMaxCommandBytes = 8192;
-
 void* g_module_handle = nullptr;
 std::string g_module_path;
 
-std::string socket_path_for(pid_t pid) {
-    return "/tmp/kirkware-load-target-" + std::to_string(static_cast<unsigned long>(::getuid())) +
-           "-" + std::to_string(static_cast<long>(pid)) + ".sock";
-}
-
-bool send_all(int fd, std::string_view text) {
-    std::size_t sent = 0;
-    while (sent < text.size()) {
-        const ssize_t rc = ::send(fd, text.data() + sent, text.size() - sent, MSG_NOSIGNAL);
-        if (rc < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return false;
-        }
-        if (rc == 0) {
-            return false;
-        }
-        sent += static_cast<std::size_t>(rc);
-    }
-    return true;
-}
-
-bool receive_line(int fd, std::string& out) {
-    out.clear();
-    char ch = '\0';
-    while (out.size() < kMaxCommandBytes) {
-        const ssize_t rc = ::recv(fd, &ch, 1, 0);
-        if (rc < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return false;
-        }
-        if (rc == 0) {
-            return !out.empty();
-        }
-        if (ch == '\n') {
-            return true;
-        }
-        if (ch != '\r') {
-            out.push_back(ch);
-        }
-    }
-    return false;
-}
-
-bool same_user_peer(int fd) {
-#ifdef SO_PEERCRED
-    struct ucred credentials {};
-    socklen_t length = static_cast<socklen_t>(sizeof(credentials));
-    if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) != 0) {
-        return false;
-    }
-    return credentials.uid == ::getuid();
-#else
-    (void)fd;
-    return false;
-#endif
+fs::path control_dir_for(pid_t pid) {
+    return fs::path("/tmp") /
+           ("kirkware-load-target-" +
+            std::to_string(static_cast<unsigned long>(::getuid())) + "-" +
+            std::to_string(static_cast<long>(pid)));
 }
 
 bool validate_module_path(const std::string& requested,
@@ -134,7 +77,8 @@ bool load_module(const std::string& requested, std::string& response) {
     void* handle = ::dlopen(canonical_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (handle == nullptr) {
         const char* error = ::dlerror();
-        response = "ERR dlopen failed: " + std::string(error != nullptr ? error : "unknown error") + "\n";
+        response = "ERR dlopen failed: " +
+                   std::string(error != nullptr ? error : "unknown error") + "\n";
         return false;
     }
 
@@ -157,7 +101,8 @@ bool unload_module(std::string& response) {
 
     if (::dlclose(handle) != 0) {
         const char* error = ::dlerror();
-        response = "ERR dlclose failed: " + std::string(error != nullptr ? error : "unknown error") + "\n";
+        response = "ERR dlclose failed: " +
+                   std::string(error != nullptr ? error : "unknown error") + "\n";
         return false;
     }
 
@@ -170,6 +115,132 @@ std::string status_response() {
         return "OK unloaded\n";
     }
     return "OK loaded " + g_module_path + "\n";
+}
+
+bool prepare_control_dir(const fs::path& control_dir, std::string& error) {
+    struct stat info {};
+    if (::lstat(control_dir.c_str(), &info) == 0) {
+        if (!S_ISDIR(info.st_mode) || info.st_uid != ::getuid()) {
+            error = "existing control path is not a current-user directory";
+            return false;
+        }
+        std::error_code remove_ec;
+        fs::remove_all(control_dir, remove_ec);
+        if (remove_ec) {
+            error = "cannot clear stale control directory: " + remove_ec.message();
+            return false;
+        }
+    } else if (errno != ENOENT) {
+        error = std::string("cannot inspect control directory: ") + std::strerror(errno);
+        return false;
+    }
+
+    const mode_t previous_umask = ::umask(0077);
+    std::error_code create_ec;
+    const bool created = fs::create_directory(control_dir, create_ec);
+    ::umask(previous_umask);
+    if (!created || create_ec) {
+        error = "cannot create control directory: " + create_ec.message();
+        return false;
+    }
+    if (::chmod(control_dir.c_str(), S_IRWXU) != 0) {
+        error = std::string("cannot secure control directory: ") + std::strerror(errno);
+        return false;
+    }
+    return true;
+}
+
+bool read_request(const fs::path& control_dir,
+                  std::string& token,
+                  std::string& command,
+                  std::string& error) {
+    const fs::path request_path = control_dir / "request.txt";
+    std::ifstream input(request_path);
+    if (!input) {
+        error = "request file is missing";
+        return false;
+    }
+
+    if (!std::getline(input, token) || token.empty()) {
+        error = "request token is missing";
+        return false;
+    }
+    if (!std::getline(input, command) || command.empty()) {
+        error = "request command is missing";
+        return false;
+    }
+
+    input.close();
+    std::error_code remove_ec;
+    fs::remove(request_path, remove_ec);
+    return true;
+}
+
+bool write_response(const fs::path& control_dir,
+                    const std::string& token,
+                    const std::string& response,
+                    std::string& error) {
+    const fs::path temp_path = control_dir / "response.tmp";
+    const fs::path response_path = control_dir / "response.txt";
+
+    {
+        std::ofstream output(temp_path, std::ios::trunc);
+        if (!output) {
+            error = "cannot create response file";
+            return false;
+        }
+        output << token << '\n' << response;
+        output.flush();
+        if (!output) {
+            error = "cannot write response file";
+            return false;
+        }
+    }
+
+    if (::chmod(temp_path.c_str(), S_IRUSR | S_IWUSR) != 0) {
+        error = std::string("cannot secure response file: ") + std::strerror(errno);
+        return false;
+    }
+
+    std::error_code rename_ec;
+    fs::rename(temp_path, response_path, rename_ec);
+    if (rename_ec) {
+        error = "cannot publish response file: " + rename_ec.message();
+        return false;
+    }
+    return true;
+}
+
+bool process_request(const fs::path& control_dir, bool& quit_requested) {
+    std::string token;
+    std::string command;
+    std::string request_error;
+    if (!read_request(control_dir, token, command, request_error)) {
+        return false;
+    }
+
+    std::string response;
+    if (command == "PING") {
+        response = "OK pong\n";
+    } else if (command == "STATUS") {
+        response = status_response();
+    } else if (command == "UNLOAD") {
+        unload_module(response);
+    } else if (command == "QUIT") {
+        response = "OK quitting\n";
+        quit_requested = true;
+    } else if (command.rfind("LOAD ", 0) == 0 && command.size() > 5) {
+        load_module(command.substr(5), response);
+    } else {
+        response = "ERR unknown command\n";
+    }
+
+    std::string response_error;
+    if (!write_response(control_dir, token, response, response_error)) {
+        std::cerr << "error: " << response_error << '\n';
+        return false;
+    }
+    return true;
 }
 
 int self_test(const std::string& module_path) {
@@ -191,7 +262,8 @@ void print_help() {
     std::cout
         << "Usage: kirkware-load-target [--self-test /absolute/path/module.so]\n\n"
         << "Runs a cooperative Linux shared-object load target owned by the current user.\n"
-        << "The target listens on a private Unix-domain socket and performs dlopen() itself.\n";
+        << "The target receives same-user requests through a private control directory\n"
+        << "and SIGUSR1, then performs dlopen() itself. No Unix socket is used.\n";
 }
 
 }  // namespace
@@ -210,97 +282,48 @@ int main(int argc, char** argv) {
     }
 
     const pid_t pid = ::getpid();
-    const std::string socket_path = socket_path_for(pid);
-    sockaddr_un address {};
-    if (socket_path.size() >= sizeof(address.sun_path)) {
-        std::cerr << "error: generated Unix socket path is too long\n";
+    const fs::path control_dir = control_dir_for(pid);
+
+    std::string prepare_error;
+    if (!prepare_control_dir(control_dir, prepare_error)) {
+        std::cerr << "error: " << prepare_error << '\n';
         return 1;
     }
 
-    const int server_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (server_fd < 0) {
-        std::cerr << "error: socket: " << std::strerror(errno) << '\n';
-        return 1;
-    }
-
-    ::unlink(socket_path.c_str());
-
-    address.sun_family = AF_UNIX;
-    std::snprintf(address.sun_path, sizeof(address.sun_path), "%s", socket_path.c_str());
-
-    const mode_t previous_umask = ::umask(0077);
-    const int bind_result = ::bind(server_fd,
-                                   reinterpret_cast<const sockaddr*>(&address),
-                                   static_cast<socklen_t>(sizeof(address)));
-    ::umask(previous_umask);
-    if (bind_result != 0) {
-        std::cerr << "error: bind: " << std::strerror(errno) << '\n';
-        ::close(server_fd);
-        return 1;
-    }
-
-    if (::chmod(socket_path.c_str(), S_IRUSR | S_IWUSR) != 0) {
-        std::cerr << "error: chmod socket: " << std::strerror(errno) << '\n';
-        ::close(server_fd);
-        ::unlink(socket_path.c_str());
-        return 1;
-    }
-
-    if (::listen(server_fd, 4) != 0) {
-        std::cerr << "error: listen: " << std::strerror(errno) << '\n';
-        ::close(server_fd);
-        ::unlink(socket_path.c_str());
+    sigset_t signal_set {};
+    ::sigemptyset(&signal_set);
+    ::sigaddset(&signal_set, SIGUSR1);
+    ::sigaddset(&signal_set, SIGINT);
+    ::sigaddset(&signal_set, SIGTERM);
+    if (::sigprocmask(SIG_BLOCK, &signal_set, nullptr) != 0) {
+        std::cerr << "error: sigprocmask: " << std::strerror(errno) << '\n';
+        std::error_code cleanup_ec;
+        fs::remove_all(control_dir, cleanup_ec);
         return 1;
     }
 
     std::cout << "Kirkware cooperative load target\n"
-              << "  PID:    " << static_cast<long>(pid) << '\n'
-              << "  Socket: " << socket_path << '\n'
+              << "  PID:     " << static_cast<long>(pid) << '\n'
+              << "  Control: " << control_dir.string() << '\n'
+              << "  Signal:  SIGUSR1\n"
               << "Waiting for same-user load requests...\n";
     std::cout.flush();
 
     bool quit_requested = false;
     while (!quit_requested) {
-        const int client_fd = ::accept(server_fd, nullptr, nullptr);
-        if (client_fd < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            std::cerr << "error: accept: " << std::strerror(errno) << '\n';
+        int received_signal = 0;
+        const int wait_result = ::sigwait(&signal_set, &received_signal);
+        if (wait_result != 0) {
+            std::cerr << "error: sigwait: " << std::strerror(wait_result) << '\n';
             break;
         }
 
-        if (!same_user_peer(client_fd)) {
-            send_all(client_fd, "ERR peer UID does not match target UID\n");
-            ::close(client_fd);
-            continue;
+        if (received_signal == SIGINT || received_signal == SIGTERM) {
+            break;
         }
-
-        std::string command;
-        if (!receive_line(client_fd, command)) {
-            send_all(client_fd, "ERR invalid or oversized command\n");
-            ::close(client_fd);
-            continue;
+        if (received_signal == SIGUSR1) {
+            process_request(control_dir, quit_requested);
         }
-
-        std::string response;
-        if (command == "PING") {
-            response = "OK pong\n";
-        } else if (command == "STATUS") {
-            response = status_response();
-        } else if (command == "UNLOAD") {
-            unload_module(response);
-        } else if (command == "QUIT") {
-            response = "OK quitting\n";
-            quit_requested = true;
-        } else if (command.rfind("LOAD ", 0) == 0 && command.size() > 5) {
-            load_module(command.substr(5), response);
-        } else {
-            response = "ERR unknown command\n";
-        }
-
-        send_all(client_fd, response);
-        ::close(client_fd);
     }
 
     if (g_module_handle != nullptr) {
@@ -308,7 +331,7 @@ int main(int argc, char** argv) {
         unload_module(ignored);
     }
 
-    ::close(server_fd);
-    ::unlink(socket_path.c_str());
+    std::error_code cleanup_ec;
+    fs::remove_all(control_dir, cleanup_ec);
     return 0;
 }
