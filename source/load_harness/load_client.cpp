@@ -29,6 +29,15 @@ std::string target_prefix() {
            std::to_string(static_cast<unsigned long>(::getuid())) + "-";
 }
 
+fs::path default_module_path() {
+    std::error_code ec;
+    const fs::path executable = fs::read_symlink("/proc/self/exe", ec);
+    if (!ec && !executable.empty()) {
+        return executable.parent_path() / "libkirkware_load_test.so";
+    }
+    return fs::current_path() / "build-load-harness" / "libkirkware_load_test.so";
+}
+
 std::vector<Target> discover_targets() {
     std::vector<Target> targets;
     const std::string prefix = target_prefix();
@@ -254,7 +263,7 @@ int interactive_mode() {
 
         std::string command;
         if (choice == "1") {
-            const fs::path suggested = fs::current_path() / "build-linux" / "libkirkware_load_test.so";
+            const fs::path suggested = default_module_path();
             std::cout << "Module path [" << suggested.string() << "]: ";
             std::string module_input;
             if (!std::getline(std::cin, module_input)) {
