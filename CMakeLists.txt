@@ -91,6 +91,7 @@ if(KIRKWARE_BUILD_UI)
     pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
     pkg_check_modules(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
     find_package(OpenGL REQUIRED)
+    find_package(Freetype REQUIRED)
 
     set(KIRKWARE_IMGUI_ROOT
         ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui-1.90-wip-18995)
@@ -100,9 +101,12 @@ if(KIRKWARE_BUILD_UI)
         ${KIRKWARE_IMGUI_ROOT}/imgui_draw.cpp
         ${KIRKWARE_IMGUI_ROOT}/imgui_tables.cpp
         ${KIRKWARE_IMGUI_ROOT}/imgui_widgets.cpp
+        ${KIRKWARE_IMGUI_ROOT}/misc/freetype/imgui_freetype.cpp
     )
     target_include_directories(kirkware_imgui PUBLIC ${KIRKWARE_IMGUI_ROOT})
     target_compile_features(kirkware_imgui PUBLIC cxx_std_20)
+    target_compile_definitions(kirkware_imgui PUBLIC IMGUI_ENABLE_FREETYPE)
+    target_link_libraries(kirkware_imgui PUBLIC Freetype::Freetype)
 
     add_executable(kirkware_ui
         source/linux_ui/linux_kirkware_ui.cpp
