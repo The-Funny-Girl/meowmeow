@@ -214,6 +214,51 @@ local function createCategoryButton(parent, frame, category, label, y)
     end
 end
 
+local function createCategoryButtons(parent, frame)
+    local preferred = {"aim", "visuals", "misc"}
+    local labels = {aim = "aim", visuals = "visuals", misc = "misc"}
+    local present = {}
+    for _, definition in pairs(modules) do
+        if isstring(definition.category) and definition.category ~= "" then
+            present[definition.category] = true
+        end
+    end
+
+    local ordered = {}
+    for _, category in ipairs(preferred) do
+        if present[category] then
+            ordered[#ordered + 1] = category
+            present[category] = nil
+        end
+    end
+
+    local extras = {}
+    for category in pairs(present) do
+        extras[#extras + 1] = category
+    end
+    table.sort(extras)
+    for _, category in ipairs(extras) do
+        ordered[#ordered + 1] = category
+    end
+
+    local activeExists = false
+    for _, category in ipairs(ordered) do
+        if category == KW.ActiveCategory then
+            activeExists = true
+            break
+        end
+    end
+    if not activeExists and ordered[1] then
+        KW.ActiveCategory = ordered[1]
+    end
+
+    for index, category in ipairs(ordered) do
+        createCategoryButton(parent, frame, category,
+                             labels[category] or category,
+                             12 + (index - 1) * 38)
+    end
+end
+
 local function closeMenu()
     if IsValid(KW.Frame) then
         KW.Frame:SetVisible(false)
@@ -276,8 +321,7 @@ local function openMenu()
         surface.DrawOutlinedRect(0, 0, width, height, 1)
     end
 
-    createCategoryButton(sidebar, frame, "visuals", "visuals", 12)
-    createCategoryButton(sidebar, frame, "misc", "misc", 50)
+    createCategoryButtons(sidebar, frame)
 
     local content = vgui.Create("DPanel", frame)
     content:SetPos(154, 48)
