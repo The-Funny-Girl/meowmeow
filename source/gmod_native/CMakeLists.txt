@@ -25,3 +25,13 @@ set_target_properties(kirkware_native PROPERTIES
     OUTPUT_NAME "gmcl_kirkware_native_linux64"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+# GMod expects the Linux binary-module filename above even though the artifact is
+# an ELF shared object. Also emit a conventional .so filename from the exact same
+# compiled binary for standalone inspection and controlled in-process loading.
+add_custom_command(TARGET kirkware_native POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:kirkware_native>"
+            "${CMAKE_BINARY_DIR}/libkirkware_native.so"
+    COMMENT "Creating conventional Linux shared-object artifact libkirkware_native.so"
+)
