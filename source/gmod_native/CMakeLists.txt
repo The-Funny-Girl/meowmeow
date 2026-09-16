@@ -11,9 +11,41 @@ if(NOT EXISTS "${GMOD_INTERFACE}")
     message(FATAL_ERROR "garrysmod_common headers were not found at ${GARRYSMOD_COMMON_DIR}")
 endif()
 
-add_library(kirkware_native MODULE kirkware_native.cpp)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+set(KIRKWARE_CLIENT_LUA_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../gmod_addon/kirkware_linux/lua/autorun/client")
+file(GLOB KIRKWARE_CLIENT_LUA CONFIGURE_DEPENDS
+    "${KIRKWARE_CLIENT_LUA_DIR}/*.lua")
+list(FILTER KIRKWARE_CLIENT_LUA EXCLUDE REGEX "/kirkware_linux_native\\.lua$")
+
+set(KIRKWARE_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(KIRKWARE_EMBEDDED_HEADER
+    "${KIRKWARE_GENERATED_DIR}/kirkware_embedded_lua.hpp")
+
+add_custom_command(
+    OUTPUT "${KIRKWARE_EMBEDDED_HEADER}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${KIRKWARE_GENERATED_DIR}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/embed_lua.py"
+            --source "${KIRKWARE_CLIENT_LUA_DIR}"
+            --output "${KIRKWARE_EMBEDDED_HEADER}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/embed_lua.py"
+        ${KIRKWARE_CLIENT_LUA}
+    COMMENT "Embedding Kirkware client Lua feature payloads"
+    VERBATIM
+)
+
+add_library(kirkware_native MODULE
+    kirkware_native.cpp
+    "${KIRKWARE_EMBEDDED_HEADER}"
+)
 target_compile_features(kirkware_native PRIVATE cxx_std_17)
-target_include_directories(kirkware_native PRIVATE "${GARRYSMOD_COMMON_DIR}/include")
+target_include_directories(kirkware_native PRIVATE
+    "${GARRYSMOD_COMMON_DIR}/include"
+    "${KIRKWARE_GENERATED_DIR}"
+)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(kirkware_native PRIVATE -Wall -Wextra -Wpedantic -fvisibility=hidden)
