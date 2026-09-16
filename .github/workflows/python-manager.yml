@@ -59,4 +59,5 @@ jobs:
           grep -q 'kirkware_linux.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
           grep -q 'kirkware_linux_combat.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
           grep -q 'kirkware_linux_modules.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
-          strings build-gmod-native/libkirkware_native.so | grep -q 'kirkware_embedded/'
+          strings build-gmod-native/libkirkware_native.so > /tmp/kirkware-native-strings.txt
+          grep -q 'kirkware_embedded/' /tmp/kirkware-native-strings.txt
