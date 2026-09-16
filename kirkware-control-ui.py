@@ -2,9 +2,10 @@
 """Kirkware Linux desktop UI for the supported private GMod workflow.
 
 The user-facing UI intentionally does not expose the cooperative load-harness PID
-controls.  For Garry's Mod it saves the selected per-launch settings, installs the
-supported addon/native module through kirkware.py, and launches the validated Steam
-AppID-4000 client.  The separate cooperative harness remains developer tooling.
+controls. For Garry's Mod, Inject prepares the selected per-launch settings and
+installs the supported addon/native module before startup. Launch Test is separate
+and only starts the validated Steam AppID-4000 private client with already-prepared
+files. The cooperative harness remains developer tooling in kirkware.py.
 """
 
 from __future__ import annotations
@@ -185,13 +186,23 @@ def manager_command(*parts: str) -> list[str]:
 
 
 def discover_profile_path() -> Path:
-    """Use the manager's own GMod discovery so profile and launch target match."""
+    """Use the manager's GMod discovery so profile and launch target stay aligned."""
     try:
         import kirkware as manager
         game, _manifest = manager.discover_gmod()
         return game / "garrysmod/data/kirkware_linux/desktop_profile.conf"
     except Exception as exc:
         raise RuntimeError(f"Could not locate the validated Garry's Mod install: {exc}") from exc
+
+
+def validated_gmod_processes() -> list[tuple[int, Path]]:
+    """Return only processes recognized by the manager for the validated install."""
+    try:
+        import kirkware as manager
+        game, _manifest = manager.discover_gmod()
+        return manager.gmod_pids(game)
+    except Exception as exc:
+        raise RuntimeError(f"Could not inspect the validated Garry's Mod install: {exc}") from exc
 
 
 class ScrollableFrame(ttk.Frame):
@@ -308,6 +319,11 @@ class ControlUi:
         self._create_main()
 
     def _create_main(self) -> None:
+        self.module_vars = {}
+        self.convar_vars = {}
+        self.bool_convar_ui_vars = {}
+        self.sort_display_vars = {}
+
         container = ttk.Frame(self.root)
         container.pack(fill="both", expand=True)
         self.main_frame = container
@@ -337,10 +353,12 @@ class ControlUi:
         self._load_profile(silent=True)
 
     def logout(self) -> None:
-        self.save_profile(silent=True)
+        if self.module_vars:
+            self.save_profile(silent=True)
         if self.main_frame is not None:
             self.main_frame.destroy()
             self.main_frame = None
+        self.output = None
         self.status_var.set("Login required")
         self._create_login()
 
@@ -358,17 +376,18 @@ class ControlUi:
         ttk.Label(
             session,
             text=(
-                "Inject/Launch uses the supported pre-launch GMod path: the selected settings are\n"
-                "written first, then Kirkware installs the folder addon/native module and starts\n"
-                "the validated Steam AppID-4000 client. The cooperative test harness is not used."
+                "Inject prepares Kirkware before GMod starts: it writes this launch's settings and\n"
+                "installs/updates the supported folder addon plus native module. Launch Test is\n"
+                "separate and only starts the private AppID-4000 test using the prepared files."
             ),
             justify="left",
             foreground="#bbbbbb",
-        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=10, pady=(8, 12))
+        ).grid(row=2, column=0, columnspan=4, sticky="w", padx=10, pady=(8, 12))
 
         buttons = ttk.Frame(session)
-        buttons.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 10))
-        ttk.Button(buttons, text="Inject / Launch Private Test", command=self.inject_private).pack(side="left", padx=4)
+        buttons.grid(row=3, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 10))
+        ttk.Button(buttons, text="Inject", command=self.inject).pack(side="left", padx=4)
+        ttk.Button(buttons, text="Launch Test", command=self.launch_test).pack(side="left", padx=4)
         ttk.Button(buttons, text="Apply Settings", command=self.apply_settings).pack(side="left", padx=4)
         ttk.Button(buttons, text="Verify Loaded", command=self.verify_loaded).pack(side="left", padx=4)
 
@@ -383,7 +402,7 @@ class ControlUi:
             relief="flat",
         )
         self.output.pack(fill="both", expand=True, padx=8, pady=8)
-        self._log("Ready. Configure Aim/Visuals/Misc, then launch the private test.\n")
+        self._log("Ready. Configure settings, click Inject, then Launch Test.\n")
 
     def _build_feature_tab(self, parent: ttk.Frame, group: str) -> None:
         modules_box = ttk.LabelFrame(parent, text=f"{group} modules")
@@ -559,24 +578,45 @@ class ControlUi:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def inject_private(self) -> None:
+    def inject(self) -> None:
         try:
+            running = validated_gmod_processes()
+            if running:
+                details = ", ".join(f"PID {pid}" for pid, _exe in running)
+                raise RuntimeError(
+                    "Close Garry's Mod before Inject. This supported injection path installs the "
+                    f"addon/native module before startup. Running process(es): {details}"
+                )
             self._save_ui_config()
             self.save_profile(silent=True)
             destination = self.export_profile()
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
+            self.status_var.set("Inject blocked")
             return
 
-        self._log(f"Per-launch settings: {destination}\n")
+        self._log(f"Per-inject settings: {destination}\n")
         commands: list[list[str]] = []
         if not NATIVE_ARTIFACT.is_file():
             commands.append(manager_command("native", "build", "--clean"))
-        launch = manager_command("gmod", "launch", "--map", self.map_var.get().strip() or "gm_construct")
+        commands.append(manager_command("gmod", "install-addon"))
+        commands.append(manager_command("native", "install"))
+        self._run_background("Preparing Kirkware for GMod", commands)
+
+    def launch_test(self) -> None:
+        self._save_ui_config()
+        launch = manager_command(
+            "gmod",
+            "launch",
+            "--no-install",
+            "--no-native",
+            "--map",
+            self.map_var.get().strip() or "gm_construct",
+        )
         if self.keep_workshop_var.get():
             launch.append("--keep-workshop")
-        commands.append(launch)
-        self._run_background("Launching private GMod session", commands)
+        self._log("Launching private test without reinstalling Kirkware.\n")
+        self._run_background("Launching private GMod test", [launch])
 
     def verify_loaded(self) -> None:
         self._run_background(
