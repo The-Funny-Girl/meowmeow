@@ -26,7 +26,10 @@ KW.NativeAvailable = native.loaded and native.loaded() == true or false
 KW.NativeVersion = native.version and native.version() or "unknown"
 KW.NativePlatform = native.platform and native.platform() or "unknown"
 KW.NativeAbi = native.abi and native.abi() or 0
+KW.NativePayloadCount = native.payload_count and native.payload_count() or 0
+KW.NativeEmbeddedLoaded = native.embedded_loaded and native.embedded_loaded() == true or false
 
 print(string.format(
-    "[kirkware linux] native module loaded: %s platform=%s abi=%s",
-    tostring(KW.NativeVersion), tostring(KW.NativePlatform), tostring(KW.NativeAbi)))
+    "[kirkware linux] native module loaded: %s platform=%s abi=%s payloads=%s embedded=%s",
+    tostring(KW.NativeVersion), tostring(KW.NativePlatform), tostring(KW.NativeAbi),
+    tostring(KW.NativePayloadCount), tostring(KW.NativeEmbeddedLoaded)))

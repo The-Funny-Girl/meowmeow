@@ -14,8 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile Python manager
-        run: python3 -m py_compile kirkware.py
+      - name: Compile Python manager and native payload generator
+        run: |
+          python3 -m py_compile kirkware.py
+          python3 -m py_compile source/gmod_native/embed_lua.py
 
       - name: Run manager self-test
         run: python3 kirkware.py self-test
@@ -47,3 +49,15 @@ jobs:
           cmp build-gmod-native/gmcl_kirkware_native_linux64.dll build-gmod-native/libkirkware_native.so
           nm -D build-gmod-native/libkirkware_native.so | grep -q ' gmod13_open$'
           nm -D build-gmod-native/libkirkware_native.so | grep -q ' gmod13_close$'
+
+      - name: Verify client feature payloads are embedded
+        run: |
+          test -f build-gmod-native/generated/kirkware_embedded_lua.hpp
+          expected="$(find source/gmod_addon/kirkware_linux/lua/autorun/client -maxdepth 1 -type f -name '*.lua' ! -name 'kirkware_linux_native.lua' | wc -l)"
+          embedded="$(grep -c '^    {\".*\.lua\", kPayload' build-gmod-native/generated/kirkware_embedded_lua.hpp)"
+          echo "expected payloads: $expected"
+          echo "embedded payloads: $embedded"
+          test "$expected" -eq "$embedded"
+          grep -q 'kirkware_linux.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
+          grep -q 'kirkware_linux_combat.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
+          grep -q 'kirkware_linux_modules.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
