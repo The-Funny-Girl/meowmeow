@@ -1,0 +1,131 @@
+-- Kirkware Linux server-authorized multiplayer bootstrap.
+-- Installed only on a Garry's Mod server controlled by the tester.
+-- Client Lua is sent by the server; the native gmcl module remains locally installed
+-- in the client's garrysmod/lua/bin/ and is loaded by the normal Kirkware native bridge.
+
+local payloads = {
+    -- KIRKWARE_PAYLOADS
+}
+
+local statusChannel = "kirkware_linux_server_bridge_status"
+
+if SERVER then
+    AddCSLuaFile()
+    for _, path in ipairs(payloads) do
+        AddCSLuaFile(path)
+    end
+
+    util.AddNetworkString(statusChannel)
+
+    local clientStatus = {}
+
+    net.Receive(statusChannel, function(_, ply)
+        if not IsValid(ply) then
+            return
+        end
+
+        local nativeLoaded = net.ReadBool()
+        local nativeVersion = net.ReadString()
+        local key = ply:SteamID64()
+        if key == "" then
+            key = tostring(ply:EntIndex())
+        end
+
+        clientStatus[key] = {
+            name = ply:Nick(),
+            nativeLoaded = nativeLoaded,
+            nativeVersion = nativeVersion,
+            receivedAt = CurTime(),
+        }
+
+        print(string.format(
+            "[kirkware server bridge] client ready: %s [%s] native=%s version=%s",
+            ply:Nick(),
+            key,
+            nativeLoaded and "yes" or "no",
+            nativeVersion
+        ))
+    end)
+
+    hook.Add("PlayerDisconnected", "KirkwareLinux.ServerBridgeCleanup", function(ply)
+        local key = ply:SteamID64()
+        if key == "" then
+            key = tostring(ply:EntIndex())
+        end
+        clientStatus[key] = nil
+    end)
+
+    concommand.Add("kirkware_server_bridge_status", function(ply)
+        if IsValid(ply) then
+            return
+        end
+
+        print("[kirkware server bridge] connected client status")
+        local count = 0
+        for key, state in pairs(clientStatus) do
+            count = count + 1
+            print(string.format(
+                "  %s [%s] native=%s version=%s age=%.1fs",
+                state.name,
+                key,
+                state.nativeLoaded and "yes" or "no",
+                state.nativeVersion,
+                math.max(0, CurTime() - state.receivedAt)
+            ))
+        end
+        if count == 0 then
+            print("  no clients have acknowledged the bridge")
+        end
+    end)
+
+    print(string.format(
+        "[kirkware server bridge] ready; serving %d authorized client files",
+        #payloads
+    ))
+    return
+end
+
+if not CLIENT then
+    return
+end
+
+if _G.KIRKWARE_LINUX_SERVER_BRIDGE_LOADED then
+    return
+end
+_G.KIRKWARE_LINUX_SERVER_BRIDGE_LOADED = true
+
+local loadedFromServer = false
+if KIRKWARE_LINUX then
+    print("[kirkware server bridge] Kirkware client state already exists; using existing state")
+else
+    loadedFromServer = true
+    for _, path in ipairs(payloads) do
+        local ok, detail = pcall(include, path)
+        if not ok then
+            print(string.format(
+                "[kirkware server bridge] failed to include %s: %s",
+                path,
+                tostring(detail)
+            ))
+            break
+        end
+    end
+end
+
+timer.Simple(0, function()
+    local KW = KIRKWARE_LINUX
+    local nativeLoaded = istable(KW) and KW.NativeAvailable == true or false
+    local nativeVersion = istable(KW) and tostring(KW.NativeVersion or "unknown") or "unavailable"
+
+    net.Start(statusChannel)
+    net.WriteBool(nativeLoaded)
+    net.WriteString(nativeVersion)
+    net.SendToServer()
+
+    print(string.format(
+        "[kirkware server bridge] multiplayer client initialized source=%s native=%s version=%s",
+        loadedFromServer and "server" or "existing",
+        nativeLoaded and "yes" or "no",
+        nativeVersion
+    ))
+end)
