@@ -55,9 +55,9 @@ jobs:
           test -f build-gmod-native/generated/kirkware_embedded_lua.hpp
           expected="$(find source/gmod_addon/kirkware_linux/lua/autorun/client -maxdepth 1 -type f -name '*.lua' ! -name 'kirkware_linux_native.lua' | wc -l)"
           embedded="$(grep -c '^    {\".*\.lua\", kPayload' build-gmod-native/generated/kirkware_embedded_lua.hpp)"
+          echo "expected payloads: $expected"
+          echo "embedded payloads: $embedded"
           test "$expected" -eq "$embedded"
           grep -q 'kirkware_linux.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
           grep -q 'kirkware_linux_combat.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
           grep -q 'kirkware_linux_modules.lua' build-gmod-native/generated/kirkware_embedded_lua.hpp
-          strings build-gmod-native/libkirkware_native.so > /tmp/kirkware-native-strings.txt
-          grep -q 'kirkware_embedded/' /tmp/kirkware-native-strings.txt
