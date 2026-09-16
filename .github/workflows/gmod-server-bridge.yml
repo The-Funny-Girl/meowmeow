@@ -1,0 +1,46 @@
+name: GMod server bridge
+
+on:
+  push:
+    paths:
+      - "kirkware-server-bridge.py"
+      - "source/gmod_server_bridge/**"
+      - "source/gmod_addon/kirkware_linux/lua/autorun/client/**"
+      - ".github/workflows/gmod-server-bridge.yml"
+  pull_request:
+    paths:
+      - "kirkware-server-bridge.py"
+      - "source/gmod_server_bridge/**"
+      - "source/gmod_addon/kirkware_linux/lua/autorun/client/**"
+      - ".github/workflows/gmod-server-bridge.yml"
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua compiler
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+
+      - name: Compile installer
+        run: python3 -m py_compile kirkware-server-bridge.py
+
+      - name: Run bridge self-test
+        run: python3 kirkware-server-bridge.py self-test
+
+      - name: Build fake server bridge
+        run: |
+          mkdir -p /tmp/kirkware-gmod-server/garrysmod
+          python3 kirkware-server-bridge.py install --server-root /tmp/kirkware-gmod-server
+          python3 kirkware-server-bridge.py status --server-root /tmp/kirkware-gmod-server
+
+      - name: Validate generated bootstrap Lua
+        run: |
+          luac -p /tmp/kirkware-gmod-server/garrysmod/addons/kirkware_linux_server_bridge/lua/autorun/kirkware_linux_server_bridge.lua
+
+      - name: Verify payload parity
+        run: |
+          expected=$(find source/gmod_addon/kirkware_linux/lua/autorun/client -maxdepth 1 -type f -name '*.lua' | wc -l)
+          actual=$(find /tmp/kirkware-gmod-server/garrysmod/addons/kirkware_linux_server_bridge/lua/kirkware_linux/client -maxdepth 1 -type f -name '*.lua' | wc -l)
+          test "$expected" -eq "$actual"
