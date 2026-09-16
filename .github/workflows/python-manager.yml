@@ -38,9 +38,12 @@ jobs:
       - name: Build Linux x64 GMod native module
         run: python3 kirkware.py native build --gmcommon .ci/garrysmod_common --no-fetch --clean
 
-      - name: Verify native artifact is ELF and exports GMod entry points
+      - name: Verify native artifacts are ELF and export GMod entry points
         run: |
           test -f build-gmod-native/gmcl_kirkware_native_linux64.dll
+          test -f build-gmod-native/libkirkware_native.so
           file build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q 'ELF 64-bit'
-          nm -D build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q ' gmod13_open$'
-          nm -D build-gmod-native/gmcl_kirkware_native_linux64.dll | grep -q ' gmod13_close$'
+          file build-gmod-native/libkirkware_native.so | grep -q 'ELF 64-bit'
+          cmp build-gmod-native/gmcl_kirkware_native_linux64.dll build-gmod-native/libkirkware_native.so
+          nm -D build-gmod-native/libkirkware_native.so | grep -q ' gmod13_open$'
+          nm -D build-gmod-native/libkirkware_native.so | grep -q ' gmod13_close$'
