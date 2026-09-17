@@ -67,3 +67,25 @@ add_custom_command(TARGET kirkware_native POST_BUILD
             "${CMAKE_BINARY_DIR}/libkirkware_native.so"
     COMMENT "Creating conventional Linux shared-object artifact libkirkware_native.so"
 )
+# Append to source/gmod_native/CMakeLists.txt (reuses the embedded-Lua header
+# target that is already defined above for kirkware_native).
+
+add_library(kirkware_lua_loader SHARED
+    "${CMAKE_CURRENT_SOURCE_DIR}/kirkware_lua_loader.cpp"
+    "${KIRKWARE_EMBEDDED_HEADER}"
+)
+target_compile_features(kirkware_lua_loader PRIVATE cxx_std_17)
+target_include_directories(kirkware_lua_loader PRIVATE
+    "${GARRYSMOD_COMMON_DIR}/include"
+    "${KIRKWARE_GENERATED_DIR}"
+)
+target_link_libraries(kirkware_lua_loader PRIVATE dl)
+set_target_properties(kirkware_lua_loader PROPERTIES
+    PREFIX "lib" OUTPUT_NAME "kirkware_lua_loader"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
+# For the inject variant instead of LD_PRELOAD:
+#   target_compile_definitions(kirkware_lua_loader PRIVATE KIRKWARE_INJECT_MODE)
+#   target_sources(kirkware_lua_loader PRIVATE /path/to/plthook/plthook_elf.c)
+#   target_include_directories(kirkware_lua_loader PRIVATE /path/to/plthook)

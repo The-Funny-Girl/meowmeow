@@ -8,3 +8,8 @@ compile_commands.json
 *.log
 __pycache__/
 *.py[cod]
+
+# Stray native build artifacts (built into build*/ by CMake)
+/libkirkware_native.so
+/libkirkware_lua_loader.so
+/inject
